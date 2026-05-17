@@ -1,7 +1,8 @@
 build/
 cmake-build-*/
 .venv/
-bench/
+/bench/
+__pycache__/
 
 *.o
 *.obj
@@ -10,3 +11,4 @@ bench/
 *.a
 *.so
 .DS_Store
+run_remote_bench.sh
