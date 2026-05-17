@@ -14,10 +14,3 @@ if(LLMES_BUILD_TESTS)
   target_link_libraries(matching_core_tests PRIVATE matching_core)
   add_test(NAME matching_core_tests COMMAND matching_core_tests)
 endif()
-
-if(LLMES_BUILD_BENCHMARKS)
-  add_executable(matching_core_phase1_bench
-    bench/phase1_benchmark.cpp
-  )
-  target_link_libraries(matching_core_phase1_bench PRIVATE matching_core)
-endif()

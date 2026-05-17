@@ -15,3 +15,7 @@ if(LLMES_BUILD_TESTS)
 endif()
 
 add_subdirectory(core/matching_core)
+
+if(LLMES_BUILD_BENCHMARKS)
+  add_subdirectory(benchmark)
+endif()

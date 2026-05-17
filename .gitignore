@@ -1,8 +1,9 @@
 build/
 cmake-build-*/
 .venv/
-/bench/
 __pycache__/
+/benchmark/results/
+/server_results/
 
 *.o
 *.obj
