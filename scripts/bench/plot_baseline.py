@@ -53,7 +53,7 @@ plt.tight_layout()
 plt.savefig(plot_dir / "ops_vs_orders.png", dpi=160)
 plt.close()
 
-# 3) CPI and LLC miss per op (with 95% CI error bars)
+# 3) CPI and cache misses per op (with 95% CI error bars)
 plt.figure(figsize=(9, 5))
 for s, g in plot_df.groupby("scenario"):
     gg = g.sort_values("orders")
@@ -72,16 +72,16 @@ plt.close()
 plt.figure(figsize=(9, 5))
 for s, g in plot_df.groupby("scenario"):
     gg = g.sort_values("orders")
-    y = gg["llc_miss_per_op_mean"]
-    yerr = (gg["llc_miss_per_op_ci95_high"] - gg["llc_miss_per_op_ci95_low"]) / 2.0
+    y = gg["cache_misses_per_op_mean"]
+    yerr = (gg["cache_misses_per_op_ci95_high"] - gg["cache_misses_per_op_ci95_low"]) / 2.0
     plt.errorbar(gg["orders"], y, yerr=yerr, marker="o", capsize=3, label=s)
 plt.xscale("log")
 plt.xlabel("orders")
-plt.ylabel("LLC miss / op")
-plt.title(f"Phase1 LLC miss per op vs book size (level={target_level})")
+plt.ylabel("cache misses / op")
+plt.title(f"Phase1 cache misses per op vs book size (level={target_level})")
 plt.legend()
 plt.tight_layout()
-plt.savefig(plot_dir / "llc_miss_per_op_vs_orders.png", dpi=160)
+plt.savefig(plot_dir / "cache_miss_per_op_vs_orders.png", dpi=160)
 plt.close()
 
 # 4) Roofline proxy: ops/s vs ops/byte with error bars

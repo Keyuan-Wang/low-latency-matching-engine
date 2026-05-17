@@ -6,8 +6,7 @@
  *   - Latency mode: wall-clock timing via steady_clock, reporting average,
  *     percentiles (p50/p95/p99) and throughput (ops/s).
  *   - PMC mode: in-process Linux perf_event counters for cycles, instructions,
- *     branches, branch-misses, LLC load/store misses, and cache misses — all
- *     reported per-operation.
+ *     branches, branch-misses, and cache misses — all reported per-operation.
  *
  * Each run begins with a configurable warmup phase (@p warmup_iters) during
  * which the same operation is executed but neither timed nor measured by PMC,
@@ -76,8 +75,8 @@ struct Args {
  * @brief Per-operation PMC counter averages.
  *
  * Each field holds the mean value of one hardware counter across all
- * iterations, normalised to a single operation.  Derived fields (cpi,
- * branch_miss_rate, llc_miss_per_op) are computed after summation to
+ * iterations, normalised to a single operation.  Derived fields (cpi and
+ * branch_miss_rate) are computed after summation to
  * avoid divide-by-iteration bias.
  */
 struct PmcPerOp {
@@ -85,12 +84,9 @@ struct PmcPerOp {
   double instructions_per_op{0.0};     ///< Retired instructions per operation
   double branches_per_op{0.0};         ///< Branch instructions per operation
   double branch_misses_per_op{0.0};    ///< Mispredicted branches per operation
-  double llc_load_misses_per_op{0.0};  ///< Last-level cache load misses per operation
-  double llc_store_misses_per_op{0.0}; ///< Last-level cache store misses per operation
   double cache_misses_per_op{0.0};     ///< Total cache-miss events per operation
   double cpi{0.0};                     ///< Cycles per instruction (derived)
   double branch_miss_rate{0.0};        ///< Branch-miss / branch ratio (derived)
-  double llc_miss_per_op{0.0};         ///< Aggregate LLC misses per operation (derived)
 };
 
 /**
@@ -111,24 +107,22 @@ static int perf_event_open(struct perf_event_attr* hw_event, pid_t pid, int cpu,
 /**
  * @brief Manages a group of Linux perf-event counters.
  *
- * Opens seven hardware counters as a single event-group so they can be
+ * Opens five hardware counters as a single event-group so they can be
  * started, stopped and read atomically via the leader FD.  Counters run
  * in user-space only (exclude_kernel=1, exclude_hv=1) and measure the
  * current thread.
  *
- * Counter order (index 0-6):
+ * Counter order (index 0-4):
  *   0: CPU cycles
  *   1: Instructions retired
  *   2: Branch instructions
  *   3: Branch misses
- *   4: LLC load misses
- *   5: LLC store misses
- *   6: Cache misses
+ *   4: Cache misses
  */
 class PerfGroup {
  public:
   /**
-   * @brief Open all seven counters as a single event-group.
+   * @brief Open all five counters as a single event-group.
    * @return true if every counter was opened successfully.
    */
   bool open() {
@@ -137,18 +131,6 @@ class PerfGroup {
     if (!open_counter(PERF_TYPE_HARDWARE, PERF_COUNT_HW_INSTRUCTIONS, leader_fd_)) return false;
     if (!open_counter(PERF_TYPE_HARDWARE, PERF_COUNT_HW_BRANCH_INSTRUCTIONS, leader_fd_)) return false;
     if (!open_counter(PERF_TYPE_HARDWARE, PERF_COUNT_HW_BRANCH_MISSES, leader_fd_)) return false;
-    if (!open_counter(PERF_TYPE_HW_CACHE,
-                      PERF_COUNT_HW_CACHE_LL |
-                          (PERF_COUNT_HW_CACHE_OP_READ << 8) |
-                          (PERF_COUNT_HW_CACHE_RESULT_MISS << 16),
-                      leader_fd_))
-      return false;
-    if (!open_counter(PERF_TYPE_HW_CACHE,
-                      PERF_COUNT_HW_CACHE_LL |
-                          (PERF_COUNT_HW_CACHE_OP_WRITE << 8) |
-                          (PERF_COUNT_HW_CACHE_RESULT_MISS << 16),
-                      leader_fd_))
-      return false;
     if (!open_counter(PERF_TYPE_HARDWARE, PERF_COUNT_HW_CACHE_MISSES, leader_fd_)) return false;
     return true;
   }
@@ -175,22 +157,22 @@ class PerfGroup {
 
   /**
    * @brief Atomically read all counter values from the group.
-   * @param[out] out  Array filled with the 7 counter values (index order
+   * @param[out] out  Array filled with the 5 counter values (index order
    *                  matches the open() sequence).
    * @return true on successful read.
    */
-  bool read_values(std::array<std::uint64_t, 7>& out) const {
+  bool read_values(std::array<std::uint64_t, 5>& out) const {
     if (leader_fd_ < 0) return false;
     struct ReadData {
       std::uint64_t nr;
-      std::uint64_t values[7];
+      std::uint64_t values[5];
     } data{};
 
     const ssize_t n = read(leader_fd_, &data, sizeof(data));
-    if (n != static_cast<ssize_t>(sizeof(data)) || data.nr != 7) {
+    if (n != static_cast<ssize_t>(sizeof(data)) || data.nr != 5) {
       return false;
     }
-    for (std::size_t i = 0; i < 7; ++i) {
+    for (std::size_t i = 0; i < 5; ++i) {
       out[i] = data.values[i];
     }
     return true;
@@ -526,7 +508,7 @@ static int run_pmc(const Args& a) {
     return 3;
   }
 
-  std::array<std::uint64_t, 7> totals{};
+  std::array<std::uint64_t, 5> totals{};
   std::uint64_t ok = 0;
 
   // Warmup phase: execute scenario without reading/enabling PMCs.
@@ -561,7 +543,7 @@ static int run_pmc(const Args& a) {
       return 3;
     }
 
-    std::array<std::uint64_t, 7> values{};
+    std::array<std::uint64_t, 5> values{};
     if (!perf.read_values(values)) {
       std::cerr << "perf read failed\n";
       return 3;
@@ -577,16 +559,13 @@ static int run_pmc(const Args& a) {
   out.instructions_per_op = totals[1] / denom;
   out.branches_per_op = totals[2] / denom;
   out.branch_misses_per_op = totals[3] / denom;
-  out.llc_load_misses_per_op = totals[4] / denom;
-  out.llc_store_misses_per_op = totals[5] / denom;
-  out.cache_misses_per_op = totals[6] / denom;
+  out.cache_misses_per_op = totals[4] / denom;
   out.cpi = (out.instructions_per_op > 0.0)
                 ? (out.cycles_per_op / out.instructions_per_op)
                 : 0.0;
   out.branch_miss_rate = (out.branches_per_op > 0.0)
                              ? (out.branch_misses_per_op / out.branches_per_op)
                              : 0.0;
-  out.llc_miss_per_op = out.llc_load_misses_per_op + out.llc_store_misses_per_op;
 
   std::cout << "mode=pmc"
             << " trial_id=" << a.trial_id
@@ -599,15 +578,14 @@ static int run_pmc(const Args& a) {
             << " instructions_per_op=" << out.instructions_per_op
             << " cpi=" << out.cpi
             << " branch_miss_rate=" << out.branch_miss_rate
-            << " llc_miss_per_op=" << out.llc_miss_per_op
+            << " cache_misses_per_op=" << out.cache_misses_per_op
             << " ok=" << ok << "\n";
 
   if (!a.out_csv.empty()) {
     ensure_csv_header(a.out_csv,
                       "mode,trial_id,scenario,orders,levels,warmup_iters,iters,seed,"
                       "cycles_per_op,instructions_per_op,branches_per_op,branch_misses_per_op,"
-                      "llc_load_misses_per_op,llc_store_misses_per_op,cache_misses_per_op,"
-                      "cpi,branch_miss_rate,llc_miss_per_op,ok");
+                      "cache_misses_per_op,cpi,branch_miss_rate,ok");
     std::ofstream f(a.out_csv, std::ios::app);
     f << "pmc,"
       << a.trial_id << ","
@@ -621,12 +599,9 @@ static int run_pmc(const Args& a) {
       << out.instructions_per_op << ","
       << out.branches_per_op << ","
       << out.branch_misses_per_op << ","
-      << out.llc_load_misses_per_op << ","
-      << out.llc_store_misses_per_op << ","
       << out.cache_misses_per_op << ","
       << out.cpi << ","
       << out.branch_miss_rate << ","
-      << out.llc_miss_per_op << ","
       << ok << "\n";
   }
 

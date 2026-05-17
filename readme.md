@@ -62,7 +62,8 @@ The repository includes a reproducible benchmark pipeline for Phase 1.
 
 - **Latency mode** (`--mode latency`): records `avg/p50/p95/p99` and `ops/s`.
 - **PMC mode** (`--mode pmc`): reads hardware counters in-process via `perf_event_open`,
-  with counters enabled only around the measured operation.
+  with counters enabled only around the measured operation (`cycles`, `instructions`,
+  `branches`, `branch-misses`, `cache-misses`).
 
 ### Scenarios
 
@@ -115,6 +116,8 @@ TRIALS=5 ITERS=3000 WARMUP_ITERS=500 bash scripts/bench/run_perf.sh
 ### Notes
 
 - `run_perf.sh` requires Linux perf support and permissions.
+- On some virtualized cloud CPUs (Hetzner), `LLC-load-misses` / `LLC-store-misses` are not exposed.
+  This baseline currently uses `cache-misses` instead; LLC load/store metrics are deferred.
 - Recommended for final reporting: run on a stable Linux server with fixed environment
   and rerun the same scripts for each phase/commit.
 
@@ -218,7 +221,7 @@ llmes/
 1. Phase 1 (current): functional core + tests
 2. Phase 2: intrusive queue, O(1) cancel index, skip list
 3. Phase 3: SoA, cache alignment, pmr experiments
-4. Phase 4: perf / benchmark (p50/p99, LLC miss)
+4. Phase 4: perf / benchmark (p50/p99, cache miss; LLC load/store where available)
 5. Market data, execution, risk, tslib, lfutils
 
 ---

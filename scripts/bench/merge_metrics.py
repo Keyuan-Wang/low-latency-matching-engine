@@ -20,7 +20,7 @@ if "mode_pmc" in raw.columns:
 raw["mode"] = "combined"
 
 # derived proxy metrics from per-op counters
-raw["bytes_per_op_proxy"] = 64.0 * raw["llc_miss_per_op"]
+raw["bytes_per_op_proxy"] = 64.0 * raw["cache_misses_per_op"]
 raw["ops_per_byte_proxy"] = 1.0 / raw["bytes_per_op_proxy"].replace(0.0, pd.NA)
 
 raw_out = res / "phase1_merged_raw_trials.csv"
@@ -47,8 +47,7 @@ group_keys = ["scenario", "orders", "levels", "warmup_iters", "iters", "seed"]
 metric_cols = [
     "avg_ns", "p50_ns", "p95_ns", "p99_ns", "ops_s",
     "cycles_per_op", "instructions_per_op", "branches_per_op",
-    "branch_misses_per_op", "llc_load_misses_per_op", "llc_store_misses_per_op",
-    "cache_misses_per_op", "cpi", "branch_miss_rate", "llc_miss_per_op",
+    "branch_misses_per_op", "cache_misses_per_op", "cpi", "branch_miss_rate",
     "bytes_per_op_proxy", "ops_per_byte_proxy"
 ]
 
