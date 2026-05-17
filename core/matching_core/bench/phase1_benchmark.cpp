@@ -42,6 +42,7 @@
 #include <chrono>
 #include <cstdint>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <numeric>
@@ -68,7 +69,7 @@ struct Args {
   std::uint64_t iters = 2000;            ///< Number of iterations (operations to measure)
   std::uint64_t seed = 42;               ///< PRNG seed (reserved for future use)
   std::uint64_t trial_id = 1;            ///< Trial-identifier for multi-trial campaigns
-  std::string out_csv;                   ///< Optional path to append CSV results
+  std::string out_csv;                   ///< Optional path to append CSV results (header auto-written if file is new/empty)
 };
 
 /**
@@ -399,12 +400,27 @@ static bool run_one_operation(const Args& a, matching::OrderBook& book, std::uin
 }
 
 /**
+ * @brief Ensure a CSV file has a header row, writing one if the file is empty or
+ *        doesn't exist.
+ * @param path   CSV file path.
+ * @param header CSV header line (without trailing newline).
+ */
+static void ensure_csv_header(const std::string& path, const std::string& header) {
+  if (path.empty()) return;
+  std::error_code ec;
+  if (std::filesystem::exists(path, ec) && std::filesystem::file_size(path, ec) > 0) return;
+  std::ofstream f(path, std::ios::app);
+  f << header << "\n";
+}
+
+/**
  * @brief Run the latency benchmark.
  *
  * A warmup phase executes @p a.warmup_iters iterations without timing to
  * stabilise CPU frequency and cache state.  A subsequent measurement phase
- * times each operation via steady_clock.  Results are printed to stdout and
- * optionally appended to a CSV file.
+ * times each operation via steady_clock.  Results are printed to stdout and,
+ * when @p a.out_csv is set, appended to a CSV file (header written
+ * automatically if the file is new or empty).
  *
  * @param a  Benchmark arguments.
  * @return   0 on success, 2 on unknown scenario.
@@ -463,6 +479,9 @@ static int run_latency(const Args& a) {
             << " ok=" << ok << "\n";
 
   if (!a.out_csv.empty()) {
+    ensure_csv_header(a.out_csv,
+                      "mode,trial_id,scenario,orders,levels,warmup_iters,iters,seed,"
+                      "avg_ns,p50_ns,p95_ns,p99_ns,ops_s,ok");
     std::ofstream f(a.out_csv, std::ios::app);
     f << "latency,"
       << a.trial_id << ","
@@ -490,7 +509,9 @@ static int run_latency(const Args& a) {
  * measurement.  Then each measured iteration wraps with perf_event group
  * enable/disable so that hardware counters only accumulate during the
  * benchmarked operation.  Counter totals are summed and divided to produce
- * per-op averages.  Prints results to stdout and optionally to a CSV file.
+ * per-op averages.  Prints results to stdout and, when @p a.out_csv is set,
+ * appends to a CSV file (header written automatically if the file is new or
+ * empty).
  *
  * Requires Linux perf_event access (CAP_PERFMON or
  * /proc/sys/kernel/perf_event_paranoid <= 1).
@@ -582,6 +603,11 @@ static int run_pmc(const Args& a) {
             << " ok=" << ok << "\n";
 
   if (!a.out_csv.empty()) {
+    ensure_csv_header(a.out_csv,
+                      "mode,trial_id,scenario,orders,levels,warmup_iters,iters,seed,"
+                      "cycles_per_op,instructions_per_op,branches_per_op,branch_misses_per_op,"
+                      "llc_load_misses_per_op,llc_store_misses_per_op,cache_misses_per_op,"
+                      "cpi,branch_miss_rate,llc_miss_per_op,ok");
     std::ofstream f(a.out_csv, std::ios::app);
     f << "pmc,"
       << a.trial_id << ","

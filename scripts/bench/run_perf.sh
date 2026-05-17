@@ -7,8 +7,7 @@ mkdir -p "$OUT_DIR"
 
 BIN="$ROOT/build/core/matching_core/matching_core_phase1_bench"
 PMC_CSV="$OUT_DIR/phase1_pmc_raw_trials.csv"
-
-echo "mode,trial_id,scenario,orders,levels,warmup_iters,iters,seed,cycles_per_op,instructions_per_op,branches_per_op,branch_misses_per_op,llc_load_misses_per_op,llc_store_misses_per_op,cache_misses_per_op,cpi,branch_miss_rate,llc_miss_per_op,ok" > "$PMC_CSV"
+: > "$PMC_CSV"  # truncate/create; header written by benchmark on first append
 
 SCENARIOS=("lmt_rest" "lmt_cross_deep" "mkt_sweep_deep" "cxl_miss" "dup_reject")
 ORDERS=(1000 10000 100000)

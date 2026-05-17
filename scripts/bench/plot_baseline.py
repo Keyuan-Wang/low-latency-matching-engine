@@ -53,11 +53,13 @@ plt.tight_layout()
 plt.savefig(plot_dir / "ops_vs_orders.png", dpi=160)
 plt.close()
 
-# 3) CPI and LLC miss per op
+# 3) CPI and LLC miss per op (with 95% CI error bars)
 plt.figure(figsize=(9, 5))
 for s, g in plot_df.groupby("scenario"):
     gg = g.sort_values("orders")
-    plt.plot(gg["orders"], gg["cpi_mean"], marker="o", label=s)
+    y = gg["cpi_mean"]
+    yerr = (gg["cpi_ci95_high"] - gg["cpi_ci95_low"]) / 2.0
+    plt.errorbar(gg["orders"], y, yerr=yerr, marker="o", capsize=3, label=s)
 plt.xscale("log")
 plt.xlabel("orders")
 plt.ylabel("CPI")
@@ -70,7 +72,9 @@ plt.close()
 plt.figure(figsize=(9, 5))
 for s, g in plot_df.groupby("scenario"):
     gg = g.sort_values("orders")
-    plt.plot(gg["orders"], gg["llc_miss_per_op_mean"], marker="o", label=s)
+    y = gg["llc_miss_per_op_mean"]
+    yerr = (gg["llc_miss_per_op_ci95_high"] - gg["llc_miss_per_op_ci95_low"]) / 2.0
+    plt.errorbar(gg["orders"], y, yerr=yerr, marker="o", capsize=3, label=s)
 plt.xscale("log")
 plt.xlabel("orders")
 plt.ylabel("LLC miss / op")

@@ -10,8 +10,7 @@ cmake --build "$ROOT/build" -j
 
 BIN="$ROOT/build/core/matching_core/matching_core_phase1_bench"
 CSV="$OUT_DIR/phase1_baseline_raw_trials.csv"
-
-echo "mode,trial_id,scenario,orders,levels,warmup_iters,iters,seed,avg_ns,p50_ns,p95_ns,p99_ns,ops_s,ok" > "$CSV"
+: > "$CSV"  # truncate/create; header written by benchmark on first append
 
 SCENARIOS=("lmt_rest" "lmt_cross_deep" "mkt_sweep_deep" "cxl_miss" "dup_reject")
 ORDERS=(1000 10000 100000)
