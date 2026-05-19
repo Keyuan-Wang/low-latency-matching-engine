@@ -36,16 +36,29 @@ bool can_cross_limit(Side taker_side, std::int64_t limit_price, std::int64_t bes
 ErrorCode OrderBook::cancel_order(std::uint64_t order_id) {
     auto try_remove = [&](auto& book) -> bool {
         for (auto level_it = book.begin(); level_it != book.end(); ++level_it) {
-            auto& queue = level_it->second;
-            for (auto it = queue.begin(); it != queue.end(); ++it) {
-                if (it->id == order_id) {
-                    queue.erase(it);
+
+            auto& price_level = level_it->second;
+
+            for (auto* order = price_level.begin(); order != nullptr; ) {
+
+                auto* temp = order->next;
+                
+                if (order->id == order_id) {
+                    // remove order from linked list
+                    price_level.erase(*order);
+                    // remove order from active id table
                     active_ids_.erase(order_id);
-                    if (queue.empty()) {
+                    // free the space occupied by order
+                    pool_.release(order);
+                    
+                    // remove empty price level from the ask/bid book
+                    if (price_level.empty()) {
                         book.erase(level_it);
                     }
                     return true;
                 }
+
+                order = temp;
             }
         }
         return false;
