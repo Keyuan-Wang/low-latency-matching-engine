@@ -2,10 +2,9 @@
  * @file bench_cxl_hit.cpp
  * @brief Benchmark scenario: cancel an existing order (successful cancel).
  *
- * Prefills the sell side with @p orders spread across @p levels, then cancels
- * the first order ID that was inserted — the order is guaranteed to exist.
- * Measures the successful cancel hot path. Paired with bench_cxl_miss.cpp
- * (cancel non-existent ID) for complete cancel-path coverage.
+ * Prefills the sell side with @p orders spread across @p levels, then
+ * cancels a randomly chosen order ID from the prefilled range. Measures
+ * the successful cancel hot path. Paired with bench_cxl_miss.cpp.
  */
 
 #include "benchmark_runner.hpp"
@@ -17,34 +16,39 @@ namespace {
 
 class CxlHitScenario : public benchmark_runner::IBenchScenario {
  public:
-	const char* Name() const override { return "cxl_hit"; }
+  const char* Name() const override { return "cxl_hit"; }
 
-	void Setup(const benchmark_runner::Args& args, std::uint64_t) override {
-		// Capacity cushion avoids reallocation noise during the measured path.
-		book_ = std::make_unique<matching::OrderBook>(args.orders + args.levels + 100);
-		id_base_ = 600'000ULL;
-		benchmark_runner::PrefillSellBook(*book_, args.orders, args.levels, id_base_);
-	}
+  void Setup(const benchmark_runner::Args& args, std::uint64_t iter_idx) override {
+    book_ = std::make_unique<matching::OrderBook>(args.orders + args.levels + 100);
+    rng_ = benchmark_runner::SplitMix64(args.seed + iter_idx * 9973ULL);
+    id_base_ = 600'000ULL;
+    benchmark_runner::PrefillSellBook(*book_, args.orders, args.levels, id_base_);
 
-	bool RunOp(const benchmark_runner::Args&, std::uint64_t,
-						 std::uint64_t batch_idx, std::uint64_t& ok) override {
-		// The id is guaranteed to exist in the prefilled set.
-		const auto code =
-				book_->cancel_order(id_base_ + static_cast<std::uint64_t>(batch_idx));
-		if (code == matching::ErrorCode::Success) ++ok;
-		return true;
-	}
+    const std::uint64_t per_level =
+        std::max<std::uint64_t>(1, args.orders / std::max<std::uint64_t>(1, args.levels));
+    total_ = per_level * args.levels;
+  }
 
-	void Teardown() override { book_.reset(); }
+  bool RunOp(const benchmark_runner::Args&, std::uint64_t,
+             std::uint64_t, std::uint64_t& ok) override {
+    const std::uint64_t cancel_id = id_base_ + (rng_.next() % total_);
+    const auto code = book_->cancel_order(cancel_id);
+    if (code == matching::ErrorCode::Success) ++ok;
+    return true;
+  }
+
+  void Teardown() override { book_.reset(); }
 
  private:
-	std::unique_ptr<matching::OrderBook> book_;
-	std::uint64_t id_base_ = 0;
+  std::unique_ptr<matching::OrderBook> book_;
+  benchmark_runner::SplitMix64 rng_{42};
+  std::uint64_t id_base_ = 0;
+  std::uint64_t total_ = 0;
 };
 
 }  // namespace
 
 int main(int argc, char** argv) {
-	CxlHitScenario scen;
-	return benchmark_runner::RunScenario(scen, argc, argv);
+  CxlHitScenario scen;
+  return benchmark_runner::RunScenario(scen, argc, argv);
 }

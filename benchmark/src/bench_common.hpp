@@ -35,6 +35,27 @@
 namespace benchmark_runner {
 
 /**
+ * @brief Minimal splitmix64 PRNG — ~2 ns/call, deterministic, seedable.
+ *
+ * Faster than std::mt19937 and friendlier to inlining.  Used inside
+ * RunOp() to generate random order IDs/prices so that compilers and
+ * branch predictors cannot lock onto a fixed constant across trials.
+ */
+struct SplitMix64 {
+  std::uint64_t state;
+
+  explicit SplitMix64(std::uint64_t seed) : state(seed) {}
+
+  std::uint64_t next() {
+    state += 0x9e3779b97f4a7c15;
+    std::uint64_t z = state;
+    z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9;
+    z = (z ^ (z >> 27)) * 0x94d049bb133111eb;
+    return z ^ (z >> 31);
+  }
+};
+
+/**
  * @brief Thin wrapper around the perf_event_open syscall.
  * @param hw_event  Per-counter configuration.
  * @param pid       Target PID (0 = current thread).
