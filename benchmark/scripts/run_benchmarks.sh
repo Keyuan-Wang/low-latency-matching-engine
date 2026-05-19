@@ -18,7 +18,7 @@ fi
 
 SCENARIOS_CSV="${SCENARIOS:-lmt_rest,lmt_cross_deep,lmt_cross_shallow,mkt_sweep_deep,cxl_miss,cxl_hit,dup_reject}"
 METRICS_CSV="${METRICS:-latency,pmc}"
-ORDERS_CSV="${ORDERS:-1000,10000,100000}"
+ORDERS_CSV="${ORDERS:-100,500,1000,5000,10000,50000,100000}"
 LEVELS_CSV="${LEVELS:-10,100,1000}"
 BATCH_SIZES_CSV="${BATCH_SIZES:-64}"
 

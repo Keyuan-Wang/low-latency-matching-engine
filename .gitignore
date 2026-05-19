@@ -13,4 +13,5 @@ __pycache__/
 *.so
 .DS_Store
 run_remote_bench.sh
+run_remote_compare.sh
 /TIMELINE.md
