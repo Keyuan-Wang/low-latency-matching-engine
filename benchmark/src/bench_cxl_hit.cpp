@@ -17,7 +17,7 @@ namespace {
 class CxlHitScenario : public benchmark_runner::IBenchScenario {
 	public:
 	const char* Name() const override { return "cxl_hit"; }
-	[[nodiscard]] std::uint64_t max_batch_size() const override { return benchmark_runner::IBenchScenario::kUnlimitedBatch; }
+	[[nodiscard]] std::uint64_t max_batch_size() const override { return 1; }
 
 	void Setup(const benchmark_runner::Args& args, std::uint64_t iter_idx) override {
 	book_ = std::make_unique<matching::OrderBook>(args.orders + args.levels + 100);
