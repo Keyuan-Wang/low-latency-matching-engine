@@ -12,31 +12,45 @@
 #include "benchmark_runner.hpp"
 #include "bench_common.hpp"
 
+#include <memory>
+
 namespace {
 
 class MktSweepDeepScenario : public benchmark_runner::IBenchScenario {
  public:
-  const char* Name() const override { return "mkt_sweep_deep"; }
+	const char* Name() const override { return "mkt_sweep_deep"; }
 
-  bool PrepareAndRun(const benchmark_runner::Args& args, std::uint64_t op_idx,
-                     std::uint64_t& ok) const override {
-    matching::OrderBook book(args.orders + args.levels + 100);
-    const std::uint64_t base = 300'000ULL + op_idx * 10'000ULL;
-    benchmark_runner::PrefillSellBook(book, args.orders, args.levels, base);
-    const std::uint64_t mkt_id = base + args.orders + args.levels + 100;
-    const auto res = book.add_market_order(mkt_id, matching::Side::Buy,
-                                           args.levels * 2,
-                                           mkt_id);
-    if (res.code == matching::ErrorCode::Success ||
-        res.code == matching::ErrorCode::MarketRemainderCancelled) {
-      ++ok;
-    }
-    return true;
-  }
+	void Setup(const benchmark_runner::Args& args, std::uint64_t) override {
+		// Build a deep ask side; the measured market order will sweep through it.
+		book_ = std::make_unique<matching::OrderBook>(args.orders + args.levels + 100);
+		base_ = 300'000ULL;
+		benchmark_runner::PrefillSellBook(*book_, args.orders, args.levels, base_);
+	}
+
+	bool RunOp(const benchmark_runner::Args& args, std::uint64_t,
+						 std::uint64_t batch_idx, std::uint64_t& ok) override {
+		// Deterministic ids avoid accidental duplicate-id rejections.
+		const std::uint64_t mkt_id = base_ + args.orders + args.levels + 100
+																 + static_cast<std::uint64_t>(batch_idx);
+		const auto res = book_->add_market_order(
+				mkt_id, matching::Side::Buy, args.levels * 2, mkt_id);
+		if (res.code == matching::ErrorCode::Success ||
+				res.code == matching::ErrorCode::MarketRemainderCancelled) {
+			++ok;
+		}
+		return true;
+	}
+
+	void Teardown() override { book_.reset(); }
+
+ private:
+	std::unique_ptr<matching::OrderBook> book_;
+	std::uint64_t base_ = 0;
 };
 
 }  // namespace
 
 int main(int argc, char** argv) {
-  return benchmark_runner::RunScenario(MktSweepDeepScenario{}, argc, argv);
+	MktSweepDeepScenario scen;
+	return benchmark_runner::RunScenario(scen, argc, argv);
 }

@@ -11,28 +11,42 @@
 #include "benchmark_runner.hpp"
 #include "bench_common.hpp"
 
+#include <memory>
+
 namespace {
 
 class LmtCrossDeepScenario : public benchmark_runner::IBenchScenario {
  public:
-  const char* Name() const override { return "lmt_cross_deep"; }
+	const char* Name() const override { return "lmt_cross_deep"; }
 
-  bool PrepareAndRun(const benchmark_runner::Args& args, std::uint64_t op_idx,
-                     std::uint64_t& ok) const override {
-    matching::OrderBook book(args.orders + args.levels + 100);
-    const std::uint64_t base = 200'000ULL + op_idx * 10'000ULL;
-    benchmark_runner::PrefillSellBook(book, args.orders, args.levels, base);
-    const std::uint64_t buy_id = base + args.orders + args.levels + 100;
-    const auto res = book.add_limit_order(buy_id, matching::Side::Buy, 5000,
-                                          args.levels,
-                                          buy_id);
-    if (res.code == matching::ErrorCode::Success) ++ok;
-    return true;
-  }
+	void Setup(const benchmark_runner::Args& args, std::uint64_t) override {
+		// Prepare deep opposite liquidity to stress the crossing loop.
+		book_ = std::make_unique<matching::OrderBook>(args.orders + args.levels + 100);
+		base_ = 200'000ULL;
+		benchmark_runner::PrefillSellBook(*book_, args.orders, args.levels, base_);
+	}
+
+	bool RunOp(const benchmark_runner::Args& args, std::uint64_t,
+						 std::uint64_t batch_idx, std::uint64_t& ok) override {
+		const std::uint64_t buy_id =
+				base_ + args.orders + args.levels + 100 +
+				static_cast<std::uint64_t>(batch_idx);
+		const auto res = book_->add_limit_order(
+				buy_id, matching::Side::Buy, 5000, args.levels, buy_id);
+		if (res.code == matching::ErrorCode::Success) ++ok;
+		return true;
+	}
+
+	void Teardown() override { book_.reset(); }
+
+ private:
+	std::unique_ptr<matching::OrderBook> book_;
+	std::uint64_t base_ = 0;
 };
 
 }  // namespace
 
 int main(int argc, char** argv) {
-  return benchmark_runner::RunScenario(LmtCrossDeepScenario{}, argc, argv);
+	LmtCrossDeepScenario scen;
+	return benchmark_runner::RunScenario(scen, argc, argv);
 }

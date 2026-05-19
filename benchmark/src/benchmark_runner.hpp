@@ -15,8 +15,13 @@
 
 namespace benchmark_runner {
 
-/** @brief Measurement mode: wall-clock latency or hardware performance counters. */
-enum class MetricMode { Latency, Pmc };
+/**
+ * @brief Measurement backend used by the runner.
+ */
+enum class MetricMode {
+	Latency,  ///< Use steady_clock wall time and report ns/op percentiles.
+	Pmc       ///< Use Linux perf_event counters and report micro-architectural metrics.
+};
 
 /**
  * @brief Aggregated command-line arguments with safe defaults.
@@ -25,45 +30,62 @@ enum class MetricMode { Latency, Pmc };
  * reasonable defaults so the benchmark can run with zero arguments.
  */
 struct Args {
-  MetricMode metric = MetricMode::Latency;       ///< Measurement mode (latency | pmc)
-  std::uint64_t orders = 10000;                  ///< Number of orders to prefill the book with
-  std::uint64_t levels = 100;                    ///< Number of price levels in the prefilled book
-  std::uint64_t batch_size = 64;                 ///< Operations per measurement sample (amortises timer/PMC overhead)
-  std::uint64_t warmup_iters = 100;              ///< Warmup iterations (not recorded)
-  std::uint64_t iters = 1000;                    ///< Number of measurement iterations
-  std::uint64_t trial_id = 1;                    ///< Trial identifier for multi-trial campaigns
-  std::uint64_t seed = 42;                       ///< PRNG seed (reserved for future use)
-  std::string version_tag = "baseline";           ///< Human-readable version label (e.g. "baseline", "v2-skiplist")
-  std::string commit_sha = "unknown";             ///< Git commit SHA for reproducibility
-  std::string out_csv;                            ///< Optional path to append CSV results (header auto-written if file is new/empty)
+	MetricMode metric = MetricMode::Latency;  ///< Measurement mode (latency | pmc).
+	std::uint64_t orders = 10000;             ///< Number of resting orders used for setup.
+	std::uint64_t levels = 100;               ///< Distinct price levels in setup depth.
+	std::uint64_t batch_size = 64;            ///< Ops per measured window (reduces timing overhead).
+	std::uint64_t warmup_iters = 100;         ///< Number of unreported warmup iterations.
+	std::uint64_t iters = 1000;               ///< Number of reported iterations.
+	std::uint64_t trial_id = 1;               ///< User-controlled trial identifier.
+	std::uint64_t seed = 42;                  ///< Reserved deterministic seed (future scenarios).
+	std::string version_tag = "baseline";     ///< Human-readable version label.
+	std::string commit_sha = "unknown";       ///< Source revision label for reproducibility.
+	std::string out_csv;                      ///< Optional CSV output path (append mode).
 };
 
 /**
  * @brief Abstract benchmark scenario interface.
  *
- * Each concrete scenario must implement Name() and PrepareAndRun().
- * The runner calls these via virtual dispatch — it has no knowledge of
- * what the scenario does internally.
+ * Each concrete scenario must implement Name(), Setup(), RunOp(), and
+ * Teardown(). The runner calls Setup+Teardown outside the timing window
+ * and only measures the cost of RunOp() calls, so book construction and
+ * pool allocation are never included in latency/PMC samples.
  */
 class IBenchScenario {
  public:
-  virtual ~IBenchScenario() = default;
+	virtual ~IBenchScenario() = default;
 
-  /** @return C-string scenario name used in stdout and CSV output. */
-  virtual const char* Name() const = 0;
+	/** @return C-string scenario name used in stdout and CSV output. */
+	virtual const char* Name() const = 0;
 
-  /**
-   * @brief Run one measured operation.
-   * @param args    Parsed CLI arguments (prefill size, batch configuration, etc.).
-   * @param op_idx  Globally monotonically increasing operation index. Use this
-   *                to generate unique order IDs so that iterations never collide.
-   * @param ok      [in,out] Incremented when the operation completes with the
-   *                expected status code (e.g. Success for a resting limit order,
-   *                UnknownOrderId for a cancel-miss).
-   * @return true if the scenario was dispatched successfully, false on fatal error.
-   */
-  virtual bool PrepareAndRun(const Args& args, std::uint64_t op_idx,
-                             std::uint64_t& ok) const = 0;
+	/**
+	 * @brief Build the measured state — called once per iteration, untimed.
+	 * @param args     Parsed CLI arguments.
+	 * @param iter_idx Monotonically increasing iteration index (global across
+	 *                 warmup + measured phases). Use this to derive unique IDs.
+	 */
+	virtual void Setup(const Args& args, std::uint64_t iter_idx) = 0;
+
+	/**
+	 * @brief Run one measured operation — called @p batch_size times per
+	 *        iteration inside the timing/PMC window.
+	 * @param args      Parsed CLI arguments.
+	 * @param iter_idx  Same iteration index passed to Setup() for this iteration.
+	 * @param batch_idx  0 … batch_size-1 within the current iteration.
+	 * @param ok        [in,out] Incremented when the operation completes with
+	 *                  the expected status code.
+	 * @return true on success, false on fatal error.
+	 */
+	virtual bool RunOp(const Args& args,
+										 std::uint64_t iter_idx,
+										 std::uint64_t batch_idx,
+										 std::uint64_t& ok) = 0;
+
+	/**
+	 * @brief Tear down the state built by Setup() — called once per iteration,
+	 *        untimed.
+	 */
+	virtual void Teardown() = 0;
 };
 
 /**
@@ -78,6 +100,6 @@ class IBenchScenario {
  * @param argv      Argument vector (forwarded from main()).
  * @return 0 on success, 2 on bad arguments / unknown scenario, 3 on PMC init error.
  */
-int RunScenario(const IBenchScenario& scenario, int argc, char** argv);
+int RunScenario(IBenchScenario& scenario, int argc, char** argv);
 
 }  // namespace benchmark_runner

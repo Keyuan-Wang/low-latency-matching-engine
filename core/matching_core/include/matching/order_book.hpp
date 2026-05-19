@@ -44,7 +44,7 @@ using BidBook = std::map<std::int64_t, PriceLevel, std::greater<>>;
 class OrderBook {
 public:
     /** @brief Constructs an empty book. */
-    explicit OrderBook(std::size_t pool_capacity) : pool_(pool_capacity) {};
+    explicit OrderBook(std::size_t pool_capacity = 100000) : pool_(pool_capacity) {};
 
     /**
      * @brief Submit a limit order: match against the opposite side, rest remainder on book.

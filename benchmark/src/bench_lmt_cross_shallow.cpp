@@ -14,38 +14,51 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <memory>
 
 namespace {
 
 class LmtCrossShallowScenario : public benchmark_runner::IBenchScenario {
  public:
-  const char* Name() const override { return "lmt_cross_shallow"; }
+	const char* Name() const override { return "lmt_cross_shallow"; }
 
-  bool PrepareAndRun(const benchmark_runner::Args& args, std::uint64_t op_idx,
-                     std::uint64_t& ok) const override {
-    matching::OrderBook book(args.orders + args.levels + 100);
-    const std::uint64_t base = 700'000ULL + op_idx * 10'000ULL;
-    benchmark_runner::PrefillSellBook(book, args.orders, args.levels, base);
+	void Setup(const benchmark_runner::Args& args, std::uint64_t) override {
+		book_ = std::make_unique<matching::OrderBook>(args.orders + args.levels + 100);
+		base_ = 700'000ULL;
+		benchmark_runner::PrefillSellBook(*book_, args.orders, args.levels, base_);
 
-    const std::uint64_t per_level =
-        std::max<std::uint64_t>(1, args.orders / std::max<std::uint64_t>(1, args.levels));
-    const std::uint64_t shallow_depth =
-        std::min<std::uint64_t>(3, std::max<std::uint64_t>(1, args.levels));
-    const std::uint64_t price = 1000 + shallow_depth - 1;
-    const std::uint64_t qty = per_level * shallow_depth + 5;
+		// Estimate book depth per level to size the partially crossing order.
+		const std::uint64_t per_level =
+				std::max<std::uint64_t>(1, args.orders / std::max<std::uint64_t>(1, args.levels));
+		const std::uint64_t shallow_depth =
+				std::min<std::uint64_t>(3, std::max<std::uint64_t>(1, args.levels));
+		price_ = static_cast<std::int64_t>(1000 + shallow_depth - 1);
+		// Keep qty slightly above the crossed depth so a bid remainder gets rested.
+		qty_   = static_cast<std::uint32_t>(per_level * shallow_depth + 5);
+	}
 
-    const std::uint64_t buy_id = base + args.orders + args.levels + 100;
-    const auto res = book.add_limit_order(buy_id, matching::Side::Buy,
-                                          static_cast<std::int64_t>(price),
-                                          qty,
-                                          buy_id);
-    if (res.code == matching::ErrorCode::Success) ++ok;
-    return true;
-  }
+	bool RunOp(const benchmark_runner::Args& args, std::uint64_t,
+						 std::uint64_t batch_idx, std::uint64_t& ok) override {
+		const std::uint64_t buy_id = base_ + args.orders + args.levels + 100
+																 + static_cast<std::uint64_t>(batch_idx);
+		const auto res = book_->add_limit_order(
+				buy_id, matching::Side::Buy, price_, qty_, buy_id);
+		if (res.code == matching::ErrorCode::Success) ++ok;
+		return true;
+	}
+
+	void Teardown() override { book_.reset(); }
+
+ private:
+	std::unique_ptr<matching::OrderBook> book_;
+	std::uint64_t base_{};
+	std::int64_t  price_{};
+	std::uint32_t qty_{};
 };
 
 }  // namespace
 
 int main(int argc, char** argv) {
-  return benchmark_runner::RunScenario(LmtCrossShallowScenario{}, argc, argv);
+	LmtCrossShallowScenario scen;
+	return benchmark_runner::RunScenario(scen, argc, argv);
 }

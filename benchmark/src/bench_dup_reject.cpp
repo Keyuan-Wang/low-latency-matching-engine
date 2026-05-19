@@ -11,26 +11,40 @@
 #include "benchmark_runner.hpp"
 #include "bench_common.hpp"
 
+#include <memory>
+
 namespace {
 
 class DupRejectScenario : public benchmark_runner::IBenchScenario {
  public:
-  const char* Name() const override { return "dup_reject"; }
+	const char* Name() const override { return "dup_reject"; }
 
-  bool PrepareAndRun(const benchmark_runner::Args& args, std::uint64_t op_idx,
-                     std::uint64_t& ok) const override {
-    matching::OrderBook book(args.orders + args.levels + 100);
-    const std::uint64_t base = 500'000ULL + op_idx * 10'000ULL;
-    benchmark_runner::PrefillSellBook(book, args.orders, args.levels, base);
-    (void)book.add_limit_order(7, matching::Side::Buy, 900, 10, base + 1);
-    const auto res = book.add_limit_order(7, matching::Side::Sell, 2000, 10, base + 2);
-    if (res.code == matching::ErrorCode::DuplicateOrderId) ++ok;
-    return true;
-  }
+	void Setup(const benchmark_runner::Args& args, std::uint64_t) override {
+		book_ = std::make_unique<matching::OrderBook>(args.orders + args.levels + 100);
+		const std::uint64_t base = 500'000ULL;
+		benchmark_runner::PrefillSellBook(*book_, args.orders, args.levels, base);
+		// Insert the first occurrence of id=7.
+		(void)book_->add_limit_order(7, matching::Side::Buy, 900, 10, base + 1);
+	}
+
+	bool RunOp(const benchmark_runner::Args&, std::uint64_t,
+						 std::uint64_t, std::uint64_t& ok) override {
+		// Re-use id=7; engine should reject as duplicate before matching.
+		const auto res =
+				book_->add_limit_order(7, matching::Side::Sell, 2000, 10, 200);
+		if (res.code == matching::ErrorCode::DuplicateOrderId) ++ok;
+		return true;
+	}
+
+	void Teardown() override { book_.reset(); }
+
+ private:
+	std::unique_ptr<matching::OrderBook> book_;
 };
 
 }  // namespace
 
 int main(int argc, char** argv) {
-  return benchmark_runner::RunScenario(DupRejectScenario{}, argc, argv);
+	DupRejectScenario scen;
+	return benchmark_runner::RunScenario(scen, argc, argv);
 }
