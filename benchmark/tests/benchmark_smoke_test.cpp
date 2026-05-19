@@ -94,7 +94,7 @@ void test_run_scenario_latency() {
 	class SmokeScenario : public benchmark_runner::IBenchScenario {
 	 public:
 		const char* Name() const override { return "smoke"; }
-	std::uint64_t max_batch_size() const override { return benchmark_runner::IBenchScenario::kUnlimitedBatch; }
+		std::uint64_t max_batch_size() const override { return benchmark_runner::IBenchScenario::kUnlimitedBatch; }
 		void Setup(const benchmark_runner::Args&, std::uint64_t) override {}
 		bool RunOp(const benchmark_runner::Args&, std::uint64_t, std::uint64_t,
 							 std::uint64_t& ok) override {

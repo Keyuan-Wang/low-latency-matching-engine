@@ -12,5 +12,4 @@ __pycache__/
 *.a
 *.so
 .DS_Store
-run_remote_bench.sh
 /TIMELINE.md
