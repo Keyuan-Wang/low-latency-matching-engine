@@ -73,6 +73,26 @@ ErrorCode OrderBook::cancel_order(std::uint64_t order_id) {
 }
 
 /**
+ * @copydoc OrderBook::modify_order
+ */
+AddResult OrderBook::modify_order(std::uint64_t order_id, Side side, std::int64_t price,
+                                  std::uint64_t quantity, std::uint64_t timestamp) {
+    // Try to cancel the existing order (if it exists, removed from book + pool released).
+    // If it doesn't exist, cancel_order inserts the id into pending_cancel_ids_.
+    const ErrorCode cancel_code = cancel_order(order_id);
+
+    // A cancel-miss adds the id to pending_cancel_ids_, which would block the
+    // subsequent add.  Clear it — modify overrides any prior cancel signal.
+    if (cancel_code == ErrorCode::UnknownOrderId) {
+        pending_cancel_ids_.erase(order_id);
+    }
+
+    // Now add as a fresh limit order — both DuplicateOrderId and
+    // PendingCancelExists checks will pass since we cleaned up.
+    return add_limit_order(order_id, side, price, quantity, timestamp);
+}
+
+/**
  * @copydoc OrderBook::add_limit_order
  */
 AddResult OrderBook::add_limit_order(std::uint64_t order_id, Side side, std::int64_t price,

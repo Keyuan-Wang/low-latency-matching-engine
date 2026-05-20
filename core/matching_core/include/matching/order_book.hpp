@@ -80,6 +80,21 @@ public:
                                std::uint64_t timestamp);
 
     /**
+     * @brief Atomically replace a resting order: remove any existing order with the same id,
+     *        then add a fresh limit order.  If no order with that id is on the book, behaves
+     *        as a plain add (skips duplicate-id checks since the id isn't active).
+     *
+     * @param order_id  Target order id (used for remove if present, then for the new insert).
+     * @param side      Side for the replacement order.
+     * @param price     Limit price for the replacement order.
+     * @param quantity  Quantity for the replacement order (> 0).
+     * @param timestamp Opaque event time for the replacement order.
+     * @return @ref AddResult from the replacement add, or @ref ErrorCode::InvalidQuantity.
+     */
+    AddResult modify_order(std::uint64_t order_id, Side side, std::int64_t price,
+                           std::uint64_t quantity, std::uint64_t timestamp);
+
+    /**
      * @brief Remove a resting order by id from either side.
      *
      * @param order_id Id to cancel.

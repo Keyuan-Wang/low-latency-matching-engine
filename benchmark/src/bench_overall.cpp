@@ -3,7 +3,7 @@
  * @brief Overall throughput benchmark: mixed operations on a single book.
  *
  * Prefills both sides of the book, then runs a fixed mix of operation types
- * (50% limit rest, 20% limit cross, 15% market, 15% cancel) in a single long
+ * (35% cancel, 30% modify, 25% limit rest, 5% limit cross, 5% market) in a single long
  * run. Uses iters=1 + a large batch_size so the book evolves realistically
  * throughout the measurement window.  Reports ops_s as total_ops / total_seconds
  * — a single global throughput metric for comparing versions.
@@ -65,35 +65,44 @@ public:
 			   std::uint64_t, std::uint64_t& ok) override {
 		const std::uint64_t roll = op_rng_.next() % 100;
 
-		if (roll < 50) {
-			// 50%: Limit order — resting (non-crossing price)
+		if (roll < 35) {
+			// 35%: Cancel — random ID from the prefilled range (hit or miss)
+			const std::uint64_t cancel_id =
+				prefilled_begin_ + (rng_.next() % prefilled_count_);
+			const auto code = book_->cancel_order(cancel_id);
+			if (code == matching::ErrorCode::Success ||
+				code == matching::ErrorCode::UnknownOrderId) ++ok;
+
+		} else if (roll < 65) {
+			// 30%: Modify — atomically replace an order (hit or miss)
+			const std::uint64_t mod_id =
+				prefilled_begin_ + (rng_.next() % prefilled_count_);
+			const std::int64_t price = 1 + static_cast<std::int64_t>(rng_.next() % 998);
+			const std::uint64_t ts = id_counter_++;
+			const auto res = book_->modify_order(mod_id, matching::Side::Buy, price, 1, ts);
+			if (res.code == matching::ErrorCode::Success) ++ok;
+
+		} else if (roll < 90) {
+			// 25%: Limit order — resting (non-crossing price)
 			const std::uint64_t oid = id_counter_++;
 			const std::int64_t price = 1 + static_cast<std::int64_t>(rng_.next() % 998);
 			const auto res = book_->add_limit_order(oid, matching::Side::Buy, price, 1, oid);
 			if (res.code == matching::ErrorCode::Success) ++ok;
 
-		} else if (roll < 70) {
-			// 20%: Limit order — crosses the spread
+		} else if (roll < 95) {
+			// 5%: Limit order — crosses the spread
 			const std::uint64_t oid = id_counter_++;
 			const std::int64_t price = 1000 + static_cast<std::int64_t>(rng_.next() % 10);
 			const auto res = book_->add_limit_order(oid, matching::Side::Buy, price, 5, oid);
 			if (res.code == matching::ErrorCode::Success ||
 				res.code == matching::ErrorCode::MarketRemainderCancelled) ++ok;
 
-		} else if (roll < 85) {
-			// 15%: Market order
+		} else {
+			// 5%: Market order
 			const std::uint64_t oid = id_counter_++;
 			const auto res = book_->add_market_order(oid, matching::Side::Buy, 10, oid);
 			if (res.code == matching::ErrorCode::Success ||
 				res.code == matching::ErrorCode::MarketRemainderCancelled) ++ok;
-
-		} else {
-			// 15%: Cancel — random ID from the prefilled range
-			const std::uint64_t cancel_id =
-				prefilled_begin_ + (rng_.next() % prefilled_count_);
-			const auto code = book_->cancel_order(cancel_id);
-			if (code == matching::ErrorCode::Success ||
-				code == matching::ErrorCode::UnknownOrderId) ++ok;
 		}
 
 		return true;
