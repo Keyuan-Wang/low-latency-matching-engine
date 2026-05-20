@@ -66,6 +66,7 @@ bin_for_scenario() {
 		dup_reject) echo "$ROOT/build/benchmark/bench_dup_reject" ;;
 		cxl_hit) echo "$ROOT/build/benchmark/bench_cxl_hit" ;;
 		lmt_cross_shallow) echo "$ROOT/build/benchmark/bench_lmt_cross_shallow" ;;
+		overall) echo "$ROOT/build/benchmark/bench_overall" ;;
 		*)
 			echo "unknown scenario: $1" >&2
 			return 1
@@ -77,6 +78,13 @@ bin_for_scenario() {
 total_runs=0
 for trial in $(seq 1 "$TRIALS"); do
 	for scenario in "${SCENARIOS[@]}"; do
+		if [[ "$scenario" == "overall" ]]; then
+			# overall: one config per metric, not a matrix
+			for metric in "${METRICS[@]}"; do
+				(( total_runs++ )) || true
+			done
+			continue
+		fi
 		for metric in "${METRICS[@]}"; do
 			for orders in "${ORDERS_ARR[@]}"; do
 				for levels in "${LEVELS_ARR[@]}"; do
@@ -94,6 +102,51 @@ current_run=0
 for trial in $(seq 1 "$TRIALS"); do
 	for scenario in "${SCENARIOS[@]}"; do
 		BIN="$(bin_for_scenario "$scenario")"
+
+		if [[ "$scenario" == "overall" ]]; then
+			(( current_run++ )) || true
+			eff_orders=100000
+			eff_levels=100
+			eff_batch=100000
+			eff_iters=1
+			for metric in "${METRICS[@]}"; do
+				if [[ "$metric" == "latency" ]]; then
+					out_file="$LAT_CSV"
+				elif [[ "$metric" == "pmc" ]]; then
+					out_file="$PMC_CSV"
+				else
+					echo "unknown metric: $metric" >&2
+					exit 2
+				fi
+
+				printf "[%3d/%3d] trial=%-2d scenario=%-15s metric=%-7s orders=%-6s levels=%-4s batch=%-3s " \
+					"$current_run" "$total_runs" "$trial" "$scenario" "$metric" "$eff_orders" "$eff_levels" "$eff_batch"
+
+				if (( DRY_RUN == 1 )); then
+					echo "(dry-run)"
+				else
+					if "$BIN" \
+						--metric "$metric" \
+						--trial-id "$trial" \
+						--orders "$eff_orders" \
+						--levels "$eff_levels" \
+						--batch-size "$eff_batch" \
+						--warmup-iters 1 \
+						--iters "$eff_iters" \
+						--seed "$SEED" \
+						--version-tag "$VERSION_TAG" \
+						--commit-sha "$COMMIT_SHA" \
+						--out "$out_file" > /dev/null; then
+						echo "ok"
+					else
+						echo "FAIL"
+						exit 1
+					fi
+				fi
+			done
+			continue
+		fi
+
 		for metric in "${METRICS[@]}"; do
 			for orders in "${ORDERS_ARR[@]}"; do
 				for levels in "${LEVELS_ARR[@]}"; do

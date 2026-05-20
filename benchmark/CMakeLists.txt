@@ -43,6 +43,11 @@ add_executable(bench_lmt_cross_shallow
 )
 target_link_libraries(bench_lmt_cross_shallow PRIVATE benchmark_runner_lib)
 
+add_executable(bench_overall
+	src/bench_overall.cpp
+)
+target_link_libraries(bench_overall PRIVATE benchmark_runner_lib)
+
 # Smoke test: validates runner infrastructure (ParseArgs, CSV output, etc.)
 add_executable(benchmark_smoke_test
 	tests/benchmark_smoke_test.cpp
