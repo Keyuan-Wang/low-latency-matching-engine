@@ -1,6 +1,7 @@
 build/
 cmake-build-*/
 .venv/
+.cache/
 __pycache__/
 /benchmark/results/
 /server_results/
