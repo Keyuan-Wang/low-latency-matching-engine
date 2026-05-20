@@ -7,7 +7,9 @@
 #include <cassert>
 
 #include "matching/order_book.hpp"
+#include "matching/intrusive_list.hpp"
 #include "matching/order_pool.hpp"
+#include "matching/types.hpp"
 
 namespace matching {
 
@@ -34,37 +36,14 @@ bool can_cross_limit(Side taker_side, std::int64_t limit_price, std::int64_t bes
  * @copydoc OrderBook::cancel_order
  */
 ErrorCode OrderBook::cancel_order(std::uint64_t order_id) {
-    auto try_remove = [&](auto& book) -> bool {
-        for (auto level_it = book.begin(); level_it != book.end(); ++level_it) {
+    auto it = id_to_order_.find(order_id);
 
-            auto& price_level = level_it->second;
-
-            for (auto* order = price_level.begin(); order != nullptr; ) {
-
-                auto* temp = order->next;
-                
-                if (order->id == order_id) {
-                    // remove order from linked list
-                    price_level.erase(*order);
-                    // remove order from active id table
-                    active_ids_.erase(order_id);
-                    // free the space occupied by order
-                    pool_.release(order);
-                    
-                    // remove empty price level from the ask/bid book
-                    if (price_level.empty()) {
-                        book.erase(level_it);
-                    }
-                    return true;
-                }
-
-                order = temp;
-            }
-        }
-        return false;
-    };
-
-    if (try_remove(bids_) || try_remove(asks_)) {
+    if (it != id_to_order_.end()) {
+        Order* o = it->second;
+        o->parent_level->erase(*o);
+        pool_.release(o);
+        active_ids_.erase(order_id);
+        id_to_order_.erase(order_id);
         return ErrorCode::Success;
     }
 
@@ -124,6 +103,7 @@ AddResult OrderBook::add_limit_order(std::uint64_t order_id, Side side, std::int
 
                 if (maker.quantity == 0) {
                     active_ids_.erase(maker.id);
+                    id_to_order_.erase(maker.id);
 
                     Order* maker_ptr = &maker;
                     price_level.erase(*maker_ptr);
@@ -155,9 +135,17 @@ AddResult OrderBook::add_limit_order(std::uint64_t order_id, Side side, std::int
     assert(node != nullptr);
 
     *node = {order_id, price, remaining, timestamp};
-    if (side == Side::Buy)  bids_[price].push_back(*node);
-    else                    asks_[price].push_back(*node);
+    if (side == Side::Buy) {
+        auto& level = bids_[price];
+        level.push_back(*node);
+        node->parent_level = &level;
+    } else {
+        auto& level = asks_[price];
+        level.push_back(*node);
+        node->parent_level = &level;
+    }
     active_ids_.insert(order_id);
+    id_to_order_.emplace(order_id, node);
 
     // output
     out.code = ErrorCode::Success;
@@ -211,6 +199,7 @@ AddResult OrderBook::add_market_order(std::uint64_t order_id, Side side, std::ui
 
                 if (maker.quantity == 0) {
                     active_ids_.erase(maker.id);
+                    id_to_order_.erase(maker.id);
 
                     Order* maker_ptr = &maker;
                     price_level.erase(*maker_ptr);

@@ -5,6 +5,8 @@
 
 namespace matching {
 
+class IntrusiveList;  // forward decl — full definition in intrusive_list.hpp
+
 enum class Side {
     Buy,   ///< Bid side (buy book).
     Sell,  ///< Ask side (sell book).
@@ -42,7 +44,7 @@ struct AddResult {
 
 
 struct Order {
-    // --- business data ---
+    // --- business data ---      
     std::uint64_t id;         ///< Unique order identifier.
     std::int64_t price;       ///< Limit price while resting on the book.
     std::uint64_t quantity;   ///< Remaining quantity.
@@ -51,6 +53,9 @@ struct Order {
     // --- intrusive list links ---
     Order* prev = nullptr;
     Order* next = nullptr;
+
+    // --- parent level links ---
+    IntrusiveList* parent_level = nullptr;
 };
 
 }

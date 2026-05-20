@@ -43,12 +43,12 @@ LOCAL_OUT_DIR="${LOCAL_OUT_DIR:-./server_results}"
 # --- benchmark campaign params (applied to every version) ---
 SCENARIOS="${SCENARIOS:-lmt_rest,lmt_cross_shallow,lmt_cross_deep,mkt_sweep_deep,cxl_hit,cxl_miss,dup_reject}"
 METRICS="${METRICS:-latency,pmc}"
-ORDERS="${ORDERS:-100,500}"
-LEVELS="${LEVELS:-10,100}"
-BATCH_SIZES="${BATCH_SIZES:-16}"
+ORDERS="${ORDERS:-100,500,1000,5000,10000,50000,100000}"
+LEVELS="${LEVELS:-10,100,1000}"
+BATCH_SIZES="${BATCH_SIZES:-64}"
 TRIALS="${TRIALS:-3}"
 ITERS="${ITERS:-100}"
-WARMUP_ITERS="${WARMUP_ITERS:-10}"
+WARMUP_ITERS="${WARMUP_ITERS:-100}"
 SEED="${SEED:-42}"
 
 # --- plot params ---
