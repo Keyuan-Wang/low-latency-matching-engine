@@ -6,11 +6,11 @@
 #pragma once
 
 #include <cstdint>
-#include <unordered_map>
 #include <unordered_set>
 #include <map>
 
 
+#include "matching/flat_hash_map.hpp"
 #include "types.hpp"
 #include "intrusive_list.hpp"
 #include "order_pool.hpp"
@@ -45,7 +45,9 @@ using BidBook = std::map<std::int64_t, PriceLevel, std::greater<>>;
 class OrderBook {
 public:
     /** @brief Constructs an empty book. */
-    explicit OrderBook(std::size_t pool_capacity = 100000) : pool_(pool_capacity) {};
+    explicit OrderBook(std::size_t pool_capacity = 100000)
+        : pool_(pool_capacity) ,
+          id_to_order_(pool_capacity) {};
 
     /**
      * @brief Submit a limit order: match against the opposite side, rest remainder on book.
@@ -120,7 +122,9 @@ private:
 
     std::unordered_set<std::uint64_t> active_ids_{};         ///< Ids currently resting on book.
     std::unordered_set<std::uint64_t> pending_cancel_ids_{}; ///< Early cancel ids not yet seen on insert.
-    std::unordered_map<std::uint64_t, Order*> id_to_order_{};
+    
+    // open-addressing hash table
+    HashTable id_to_order_;
 };
 
 }  // namespace matching

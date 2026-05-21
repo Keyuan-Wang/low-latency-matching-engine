@@ -36,10 +36,11 @@ bool can_cross_limit(Side taker_side, std::int64_t limit_price, std::int64_t bes
  * @copydoc OrderBook::cancel_order
  */
 ErrorCode OrderBook::cancel_order(std::uint64_t order_id) {
-    auto it = id_to_order_.find(order_id);
+    auto order_ptr = id_to_order_.find(order_id);
 
-    if (it != id_to_order_.end()) {
-        Order* o = it->second;
+    if (order_ptr != nullptr) {
+        Order* o = static_cast<Order*>(order_ptr);
+
         o->parent_level->erase(*o);
         pool_.release(o);
         active_ids_.erase(order_id);
@@ -57,9 +58,11 @@ ErrorCode OrderBook::cancel_order(std::uint64_t order_id) {
 AddResult OrderBook::modify_order(std::uint64_t order_id, Side side, std::int64_t price,
                                   std::uint64_t quantity, std::uint64_t timestamp) {
     // Remove existing order with this id if present (no side effects on pending_cancel_ids_).
-    auto it = id_to_order_.find(order_id);
-    if (it != id_to_order_.end()) {
-        Order* o = it->second;
+    auto order_ptr = id_to_order_.find(order_id);
+
+    if (order_ptr != nullptr) {
+        Order* o = static_cast<Order*>(order_ptr);
+
         o->parent_level->erase(*o);
         pool_.release(o);
         active_ids_.erase(order_id);
@@ -168,7 +171,7 @@ AddResult OrderBook::add_limit_order(std::uint64_t order_id, Side side, std::int
         node->parent_level = &level;
     }
     active_ids_.insert(order_id);
-    id_to_order_.emplace(order_id, node);
+    id_to_order_.insert(order_id, node);
 
     // output
     out.code = ErrorCode::Success;
