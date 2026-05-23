@@ -123,7 +123,7 @@ Each trial runs batch_size=100,000 operations on a book prefilled with 200,000 o
 | latency (ns) | 270,915 | 198,788 | 222 |
 | ops/s | **3,691** | **5,033** (+36%) | **4,499,000** (+894×) |
 
-![Overall benchmark comparison](overall_benchmark_comparison.png)
+![Overall benchmark comparison](overall_phase1_vs_2a_vs_2b.png)
 
 ### Phase2b vs Phase2a: ops_s breakdown (log scale)
 
