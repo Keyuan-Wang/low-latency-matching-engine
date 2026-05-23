@@ -1,6 +1,6 @@
 /**
  * @file flat_hash_map.hpp
- * @brief Open-addressing flat hash map with linear probing (Phase 2c).
+ * @brief Open-addressing flat hash map with Robin Hood + backward-shift (Phase 2d).
  *
  * Replaces std::unordered_map<uint64_t, Order*> with a cache-local
  * alternative.  All slots live in a single contiguous std::vector — no
@@ -9,8 +9,9 @@
  * Key design decisions:
  *   - Open addressing + linear probing → probe chain fits in 1–2 cache lines
  *   - Power-of-2 capacity → index via `hash & mask`, no modulo
- *   - Tombstone-based deletion → O(1) amortised erase without shifting
- *   - Load-factor-triggered rehash → also purges accumulated tombstones
+ *   - Robin Hood insertion → bound max probe distance by swapping rich/poor entries
+ *   - Backward-shift deletion → O(probe-chain) erase that keeps the table compact
+ *   - Load-factor-triggered rehash at 60%
  */
 
 #pragma once
@@ -23,8 +24,7 @@ namespace matching {
 /** @brief Slot state for the open-addressing hash table. */
 enum class State : std::uint8_t {
     EMPTY,     ///< Never used — probe chain ends here.
-    OCCUPIED,  ///< Holds a live key/value pair.
-    TOMBSTONE  ///< Was occupied but erased — probe chain continues.
+    OCCUPIED  ///< Holds a live key/value pair.
 };
 
 /**
@@ -37,13 +37,13 @@ class HashTable {
 private:
     /** @brief One slot in the open-addressing array. */
     struct Slot {
-        std::uint64_t key;     ///< Order id.
-        void*         value;   ///< Pointer to the matching::Order.
+        std::uint64_t key;          ///< Order id.
+        void*         value;        ///< Pointer to the matching::Order.
+        std::uint32_t probe_dist;   ///< dist from ideal location
         State         state = State::EMPTY;
     };
 
     std::size_t        size_       = 0;  ///< Live entry count.
-    std::size_t        tombstones_ = 0;  ///< Tombstone count (reclaimed on rehash).
     std::size_t        capacity_   = 0;  ///< Current capacity (always power of 2).
     std::uint64_t      mask_       = 0;  ///< capacity_ - 1 (index mask).
     std::vector<Slot>  slots_{};         ///< Backing store — contiguous array.
@@ -88,13 +88,12 @@ public:
     /** @brief Look up a key; return value or nullptr. */
     void* find(std::uint64_t key);
 
-    /** @brief Erase a key (tombstone).  True if the key existed. */
+    /** @brief Erase a key via backward-shift deletion.  True if the key existed. */
     bool erase(std::uint64_t key);
 
     // --- accessors ---
 
     [[nodiscard]] std::size_t size()       const noexcept { return size_; }
-    [[nodiscard]] std::size_t tombstones() const noexcept { return tombstones_; }
     [[nodiscard]] std::size_t capacity()   const noexcept { return capacity_; }
     [[nodiscard]] bool        empty()      const noexcept { return size_ == 0; }
 };
