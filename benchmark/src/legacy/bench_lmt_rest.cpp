@@ -21,7 +21,7 @@ class LmtRestScenario : public benchmark_runner::IBenchScenario {
 	[[nodiscard]] std::uint64_t max_batch_size() const override { return benchmark_runner::IBenchScenario::kUnlimitedBatch; }
 
 	void Setup(const benchmark_runner::Args& args, std::uint64_t iter_idx) override {
-	book_ = std::make_unique<matching::OrderBook>();
+	book_ = std::make_unique<matching::OrderBook>(args.orders + args.levels + 100);
 	rng_ = benchmark_runner::SplitMix64(args.seed + iter_idx * 9973ULL);
 	safe_base_ = args.orders + args.levels + 200;
 	}

@@ -81,7 +81,7 @@ void test_percentile() {
 
 /** @brief Test PrefillSellBook populates the book correctly. */
 void test_prefill_sell_book() {
-	matching::OrderBook book;
+	matching::OrderBook book(210);
 	benchmark_runner::PrefillSellBook(book, 100, 10, 1000);
 	const auto r = book.add_market_order(9999, matching::Side::Buy, 200, 9999);
 	check(r.filled_quantity > 0, "prefilled orders exist and can be swept");

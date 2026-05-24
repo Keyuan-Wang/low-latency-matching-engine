@@ -267,4 +267,88 @@ inline void PrefillSellBook(matching::OrderBook& book, std::uint64_t orders,
 	}
 }
 
+/**
+	* @brief Prefill an OrderBook with HFT-realistic depth decay.
+	*
+	* Distributes @p orders across @p levels with an exponential-like decay from
+	* the best price, matching empirical limit-order-book depth profiles:
+	*   best price (tick 0):   20% of orders
+	*   tick  1:  18%      tick  2:  15%      tick  3:  12%
+	*   tick  4:  10%      tick  5:   8%      ticks 6-10: 2.4% each
+	*   ticks 11+: balance of remaining 5%
+	*
+	* For fewer than 12 levels the same shape is proportionally compressed.
+	*
+	* @param book      Target OrderBook (modified in-place).
+	* @param orders    Total number of orders to insert.
+	* @param levels    Number of distinct price levels.
+	* @param base_price Best (tightest) price in ticks (default 1000 = $10.00).
+	* @param id_base   Starting order-ID offset.
+	* @param seed      Deterministic RNG seed for ID generation.
+	* @param side      Side to place orders (Sell for asks, Buy for bids).
+	*/
+inline void PrefillHftBook(matching::OrderBook& book,
+														std::uint64_t orders,
+														std::uint64_t levels,
+														std::int64_t base_price = 1000,
+														std::uint64_t id_base = 100'000'000ULL,
+														std::uint64_t seed = 42,
+														matching::Side side = matching::Side::Sell) {
+	SplitMix64 rng(seed);
+	std::uint64_t id = id_base;
+	std::uint64_t remaining = orders;
+
+	// Weights for ticks 0..10 (exponential-like decay)
+	static constexpr double kW[11] = {20.0, 18.0, 15.0, 12.0, 10.0,
+																		8.0, 2.4, 2.4, 2.4, 2.4, 2.4};
+
+	if (levels >= 12) {
+		// Standard distribution: ticks 0-10 get their exact weight / 100,
+		// ticks 11+ share the remaining 5% equally.
+		for (std::uint64_t tick = 0; tick < levels && remaining > 0; ++tick) {
+			const double pct = (tick < 11)
+				? kW[tick] / 100.0
+				: 0.05 / static_cast<double>(levels - 11);
+			std::uint64_t count = static_cast<std::uint64_t>(
+					pct * static_cast<double>(orders));
+			if (count == 0 && remaining > 0) count = 1;
+			if (count > remaining) count = remaining;
+
+			const std::int64_t price = base_price + static_cast<std::int64_t>(tick);
+			for (std::uint64_t j = 0; j < count; ++j) {
+				(void)book.add_limit_order(id, side, price, 1, id);
+				++id;
+			}
+			remaining -= count;
+		}
+	} else {
+		// Fewer than 12 levels: normalize weights proportionally.
+		double total = 0.0;
+		for (std::uint64_t i = 0; i < levels; ++i) total += kW[i];
+		for (std::uint64_t tick = 0; tick < levels && remaining > 0; ++tick) {
+			const double pct = kW[tick] / total;
+			std::uint64_t count = static_cast<std::uint64_t>(
+					pct * static_cast<double>(orders));
+			if (count == 0 && remaining > 0) count = 1;
+			if (count > remaining) count = remaining;
+
+			const std::int64_t price = base_price + static_cast<std::int64_t>(tick);
+			for (std::uint64_t j = 0; j < count; ++j) {
+				(void)book.add_limit_order(id, side, price, 1, id);
+				++id;
+			}
+			remaining -= count;
+		}
+	}
+
+	// Any leftover orders due to rounding go to the best price.
+	if (remaining > 0) {
+		const std::int64_t price = base_price;
+		for (std::uint64_t j = 0; j < remaining; ++j) {
+			(void)book.add_limit_order(id, side, price, 1, id);
+			++id;
+		}
+	}
+}
+
 }  // namespace benchmark_runner

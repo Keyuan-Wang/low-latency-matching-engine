@@ -1,9 +1,9 @@
 /**
-	* @file bench_mkt_sweep_deep.cpp
-	* @brief Benchmark scenario: market order sweeping a deep resting book.
+	* @file bench_lmt_cross_deep.cpp
+	* @brief Benchmark scenario: limit order crossing a deep resting book.
 	*
-	* Prefills the sell side, then submits a buy market order that consumes as
-	* many resting sells as possible.  Each RunOp draws a fresh random ID.
+	* Prefills the sell side, then submits a buy limit at price 5000 that
+	* crosses the entire spread.  Each RunOp uses a fresh random buyer ID.
 	*/
 
 #include "benchmark_runner.hpp"
@@ -13,28 +13,25 @@
 
 namespace {
 
-class MktSweepDeepScenario : public benchmark_runner::IBenchScenario {
+class LmtCrossDeepScenario : public benchmark_runner::IBenchScenario {
 	public:
-	const char* Name() const override { return "mkt_sweep_deep"; }
+	const char* Name() const override { return "lmt_cross_deep"; }
 	[[nodiscard]] std::uint64_t max_batch_size() const override { return 1; }
 
 	void Setup(const benchmark_runner::Args& args, std::uint64_t iter_idx) override {
-	book_ = std::make_unique<matching::OrderBook>();
+	book_ = std::make_unique<matching::OrderBook>(args.orders + args.levels + 100);
 	rng_ = benchmark_runner::SplitMix64(args.seed + iter_idx * 9973ULL);
-	base_ = 300'000ULL;
+	base_ = 200'000ULL;
 	benchmark_runner::PrefillSellBook(*book_, args.orders, args.levels, base_);
 	safe_base_ = base_ + args.orders + args.levels + 200;
 	}
 
 	bool RunOp(const benchmark_runner::Args& args, std::uint64_t,
 			 std::uint64_t, std::uint64_t& ok) override {
-	const std::uint64_t mkt_id = safe_base_ + rng_.next();
-	const auto res = book_->add_market_order(mkt_id, matching::Side::Buy,
-											 args.levels * 2, mkt_id);
-	if (res.code == matching::ErrorCode::Success ||
-		res.code == matching::ErrorCode::MarketRemainderCancelled) {
-	  ++ok;
-	}
+	const std::uint64_t buy_id = safe_base_ + rng_.next();
+	const auto res = book_->add_limit_order(buy_id, matching::Side::Buy, 5000,
+											args.levels, buy_id);
+	if (res.code == matching::ErrorCode::Success) ++ok;
 	return true;
 	}
 
@@ -50,6 +47,6 @@ class MktSweepDeepScenario : public benchmark_runner::IBenchScenario {
 }  // namespace
 
 int main(int argc, char** argv) {
-	MktSweepDeepScenario scen;
+	LmtCrossDeepScenario scen;
 	return benchmark_runner::RunScenario(scen, argc, argv);
 }

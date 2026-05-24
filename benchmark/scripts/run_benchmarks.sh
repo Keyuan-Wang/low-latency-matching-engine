@@ -8,17 +8,17 @@ mkdir -p "$OUT_DIR"
 DRY_RUN="${DRY_RUN:-0}"
 
 if [[ "${1:-}" == "--dry-run" ]]; then
-  DRY_RUN=1
+	DRY_RUN=1
 fi
 
 if (( DRY_RUN == 0 )); then
-  cmake -S "$ROOT" -B "$ROOT/build" -DCMAKE_BUILD_TYPE="${BUILD_TYPE:-Release}" -DLLMES_BUILD_BENCHMARKS=ON
-  cmake --build "$ROOT/build" -j
+	cmake -S "$ROOT" -B "$ROOT/build" -DCMAKE_BUILD_TYPE="${BUILD_TYPE:-Release}" -DLLMES_BUILD_BENCHMARKS=ON
+	cmake --build "$ROOT/build" -j
 fi
 
-SCENARIOS_CSV="${SCENARIOS:-lmt_rest,lmt_cross_deep,lmt_cross_shallow,mkt_sweep_deep,cxl_miss,cxl_hit,dup_reject}"
+SCENARIOS_CSV="${SCENARIOS:-hft_add_near,hft_add_far,hft_cancel_hot,hft_cancel_cold,hft_modify_near,hft_cxl_miss,hft_market_small,hft_market_large}"
 METRICS_CSV="${METRICS:-latency,pmc}"
-ORDERS_CSV="${ORDERS:-1000,10000,100000}"
+ORDERS_CSV="${ORDERS:-100,500,1000,5000,10000,50000,100000}"
 LEVELS_CSV="${LEVELS:-10,100,1000}"
 BATCH_SIZES_CSV="${BATCH_SIZES:-64}"
 
@@ -41,163 +41,173 @@ PMC_CSV="$OUT_DIR/${OUT_PREFIX}_pmc_raw_trials.csv"
 RUN_LATENCY=0
 RUN_PMC=0
 for metric in "${METRICS[@]}"; do
-  if [[ "$metric" == "latency" ]]; then
-    RUN_LATENCY=1
-  elif [[ "$metric" == "pmc" ]]; then
-    RUN_PMC=1
-  fi
+	if [[ "$metric" == "latency" ]]; then
+		RUN_LATENCY=1
+	elif [[ "$metric" == "pmc" ]]; then
+		RUN_PMC=1
+	fi
 done
 
 if (( DRY_RUN == 0 )); then
-  if (( RUN_LATENCY == 1 )); then
-    : > "$LAT_CSV"
-  fi
-  if (( RUN_PMC == 1 )); then
-    : > "$PMC_CSV"
-  fi
+	if (( RUN_LATENCY == 1 )); then
+		: > "$LAT_CSV"
+	fi
+	if (( RUN_PMC == 1 )); then
+		: > "$PMC_CSV"
+	fi
 fi
 
 bin_for_scenario() {
-  case "$1" in
-    lmt_rest) echo "$ROOT/build/benchmark/bench_lmt_rest" ;;
-    lmt_cross_deep) echo "$ROOT/build/benchmark/bench_lmt_cross_deep" ;;
-    mkt_sweep_deep) echo "$ROOT/build/benchmark/bench_mkt_sweep_deep" ;;
-    cxl_miss) echo "$ROOT/build/benchmark/bench_cxl_miss" ;;
-    dup_reject) echo "$ROOT/build/benchmark/bench_dup_reject" ;;
-    cxl_hit) echo "$ROOT/build/benchmark/bench_cxl_hit" ;;
-    lmt_cross_shallow) echo "$ROOT/build/benchmark/bench_lmt_cross_shallow" ;;
-    overall) echo "$ROOT/build/benchmark/bench_overall" ;;
-    *)
-      echo "unknown scenario: $1" >&2
-      return 1
-      ;;
-  esac
+	case "$1" in
+		lmt_rest) echo "$ROOT/build/benchmark/bench_lmt_rest" ;;
+		lmt_cross_deep) echo "$ROOT/build/benchmark/bench_lmt_cross_deep" ;;
+		mkt_sweep_deep) echo "$ROOT/build/benchmark/bench_mkt_sweep_deep" ;;
+		cxl_miss) echo "$ROOT/build/benchmark/bench_cxl_miss" ;;
+		dup_reject) echo "$ROOT/build/benchmark/bench_dup_reject" ;;
+		cxl_hit) echo "$ROOT/build/benchmark/bench_cxl_hit" ;;
+		lmt_cross_shallow) echo "$ROOT/build/benchmark/bench_lmt_cross_shallow" ;;
+		overall) echo "$ROOT/build/benchmark/bench_overall" ;;
+		hft_add_near) echo "$ROOT/build/benchmark/bench_hft_add_near" ;;
+		hft_add_far) echo "$ROOT/build/benchmark/bench_hft_add_far" ;;
+		hft_cancel_hot) echo "$ROOT/build/benchmark/bench_hft_cancel_hot" ;;
+		hft_cancel_cold) echo "$ROOT/build/benchmark/bench_hft_cancel_cold" ;;
+		hft_modify_near) echo "$ROOT/build/benchmark/bench_hft_modify_near" ;;
+		hft_cxl_miss) echo "$ROOT/build/benchmark/bench_hft_cxl_miss" ;;
+		hft_market_small) echo "$ROOT/build/benchmark/bench_hft_market_small" ;;
+		hft_market_large) echo "$ROOT/build/benchmark/bench_hft_market_large" ;;
+		hft_macro) echo "$ROOT/build/benchmark/bench_hft_macro" ;;
+		*)
+			echo "unknown scenario: $1" >&2
+			return 1
+			;;
+	esac
 }
 
 # Count total runs for progress tracking
 total_runs=0
 for trial in $(seq 1 "$TRIALS"); do
-  for scenario in "${SCENARIOS[@]}"; do
-    if [[ "$scenario" == "overall" ]]; then
-      for metric in "${METRICS[@]}"; do
-        (( total_runs++ )) || true
-      done
-      continue
-    fi
-    for metric in "${METRICS[@]}"; do
-      for orders in "${ORDERS_ARR[@]}"; do
-        for levels in "${LEVELS_ARR[@]}"; do
-          if (( levels > orders )); then continue; fi
-          for batch_size in "${BATCH_ARR[@]}"; do
-            (( total_runs++ )) || true
-          done
-        done
-      done
-    done
-  done
+	for scenario in "${SCENARIOS[@]}"; do
+		if [[ "$scenario" == "overall" ]]; then
+			# overall: one config per metric, not a matrix
+			for metric in "${METRICS[@]}"; do
+				(( total_runs++ )) || true
+			done
+			continue
+		fi
+		for metric in "${METRICS[@]}"; do
+			for orders in "${ORDERS_ARR[@]}"; do
+				for levels in "${LEVELS_ARR[@]}"; do
+					if (( levels > orders )); then continue; fi
+					for batch_size in "${BATCH_ARR[@]}"; do
+						(( total_runs++ )) || true
+					done
+				done
+			done
+		done
+	done
 done
 
 current_run=0
 for trial in $(seq 1 "$TRIALS"); do
-  for scenario in "${SCENARIOS[@]}"; do
-    BIN="$(bin_for_scenario "$scenario")"
+	for scenario in "${SCENARIOS[@]}"; do
+		BIN="$(bin_for_scenario "$scenario")"
 
-    if [[ "$scenario" == "overall" ]]; then
-      (( current_run++ )) || true
-      eff_orders=100000
-      eff_levels=100
-      eff_batch=100000
-      eff_iters=1
-      for metric in "${METRICS[@]}"; do
-        if [[ "$metric" == "latency" ]]; then
-          out_file="$LAT_CSV"
-        elif [[ "$metric" == "pmc" ]]; then
-          out_file="$PMC_CSV"
-        else
-          echo "unknown metric: $metric" >&2
-          exit 2
-        fi
+		if [[ "$scenario" == "overall" ]]; then
+			(( current_run++ )) || true
+			eff_orders=100000
+			eff_levels=100
+			eff_batch=100000
+			eff_iters=1
+			for metric in "${METRICS[@]}"; do
+				if [[ "$metric" == "latency" ]]; then
+					out_file="$LAT_CSV"
+				elif [[ "$metric" == "pmc" ]]; then
+					out_file="$PMC_CSV"
+				else
+					echo "unknown metric: $metric" >&2
+					exit 2
+				fi
 
-        printf "[%3d/%3d] trial=%-2d scenario=%-15s metric=%-7s orders=%-6s levels=%-4s batch=%-3s " \
-          "$current_run" "$total_runs" "$trial" "$scenario" "$metric" "$eff_orders" "$eff_levels" "$eff_batch"
+				printf "[%3d/%3d] trial=%-2d scenario=%-15s metric=%-7s orders=%-6s levels=%-4s batch=%-3s " \
+					"$current_run" "$total_runs" "$trial" "$scenario" "$metric" "$eff_orders" "$eff_levels" "$eff_batch"
 
-        if (( DRY_RUN == 1 )); then
-          echo "(dry-run)"
-        else
-          if "$BIN" \
-            --metric "$metric" \
-            --trial-id "$trial" \
-            --orders "$eff_orders" \
-            --levels "$eff_levels" \
-            --batch-size "$eff_batch" \
-            --warmup-iters 1 \
-            --iters "$eff_iters" \
-            --seed "$SEED" \
-            --version-tag "$VERSION_TAG" \
-            --commit-sha "$COMMIT_SHA" \
-            --out "$out_file" > /dev/null; then
-            echo "ok"
-          else
-            echo "FAIL"
-            exit 1
-          fi
-        fi
-      done
-      continue
-    fi
+				if (( DRY_RUN == 1 )); then
+					echo "(dry-run)"
+				else
+					if "$BIN" \
+						--metric "$metric" \
+						--trial-id "$trial" \
+						--orders "$eff_orders" \
+						--levels "$eff_levels" \
+						--batch-size "$eff_batch" \
+						--warmup-iters 1 \
+						--iters "$eff_iters" \
+						--seed "$SEED" \
+						--version-tag "$VERSION_TAG" \
+						--commit-sha "$COMMIT_SHA" \
+						--out "$out_file" > /dev/null; then
+						echo "ok"
+					else
+						echo "FAIL"
+						exit 1
+					fi
+				fi
+			done
+			continue
+		fi
 
-    for metric in "${METRICS[@]}"; do
-      for orders in "${ORDERS_ARR[@]}"; do
-        for levels in "${LEVELS_ARR[@]}"; do
-          if (( levels > orders )); then continue; fi
-          for batch_size in "${BATCH_ARR[@]}"; do
-            (( current_run++ )) || true
-            if [[ "$metric" == "latency" ]]; then
-              out_file="$LAT_CSV"
-            elif [[ "$metric" == "pmc" ]]; then
-              out_file="$PMC_CSV"
-            else
-              echo "unknown metric: $metric" >&2
-              exit 2
-            fi
+		for metric in "${METRICS[@]}"; do
+			for orders in "${ORDERS_ARR[@]}"; do
+				for levels in "${LEVELS_ARR[@]}"; do
+					if (( levels > orders )); then continue; fi
+					for batch_size in "${BATCH_ARR[@]}"; do
+						(( current_run++ )) || true
+						if [[ "$metric" == "latency" ]]; then
+							out_file="$LAT_CSV"
+						elif [[ "$metric" == "pmc" ]]; then
+							out_file="$PMC_CSV"
+						else
+							echo "unknown metric: $metric" >&2
+							exit 2
+						fi
 
-            printf "[%3d/%3d] trial=%-2d scenario=%-15s metric=%-7s orders=%-6s levels=%-4s batch=%-3s " \
-              "$current_run" "$total_runs" "$trial" "$scenario" "$metric" "$orders" "$levels" "$batch_size"
+						printf "[%3d/%3d] trial=%-2d scenario=%-15s metric=%-7s orders=%-6s levels=%-4s batch=%-3s " \
+							"$current_run" "$total_runs" "$trial" "$scenario" "$metric" "$orders" "$levels" "$batch_size"
 
-            if (( DRY_RUN == 1 )); then
-              echo "(dry-run)"
-            else
-              if "$BIN" \
-                --metric "$metric" \
-                --trial-id "$trial" \
-                --orders "$orders" \
-                --levels "$levels" \
-                --batch-size "$batch_size" \
-                --warmup-iters "$WARMUP_ITERS" \
-                --iters "$ITERS" \
-                --seed "$SEED" \
-                --version-tag "$VERSION_TAG" \
-                --commit-sha "$COMMIT_SHA" \
-                --out "$out_file" > /dev/null; then
-                echo "ok"
-              else
-                echo "FAIL"
-                exit 1
-              fi
-            fi
-          done
-        done
-      done
-    done
-  done
+						if (( DRY_RUN == 1 )); then
+							echo "(dry-run)"
+						else
+							if "$BIN" \
+								--metric "$metric" \
+								--trial-id "$trial" \
+								--orders "$orders" \
+								--levels "$levels" \
+								--batch-size "$batch_size" \
+								--warmup-iters "$WARMUP_ITERS" \
+								--iters "$ITERS" \
+								--seed "$SEED" \
+								--version-tag "$VERSION_TAG" \
+								--commit-sha "$COMMIT_SHA" \
+								--out "$out_file" > /dev/null; then
+								echo "ok"
+							else
+								echo "FAIL"
+								exit 1
+							fi
+						fi
+					done
+				done
+			done
+		done
+	done
 done
 
 if (( DRY_RUN == 1 )); then
-  echo ""
-  echo "Dry-run complete. $total_runs commands would be executed."
+	echo ""
+	echo "Dry-run complete. $total_runs commands would be executed."
 elif (( RUN_LATENCY == 1 )); then
-  echo "latency raw trials saved: $LAT_CSV"
+	echo "latency raw trials saved: $LAT_CSV"
 fi
 if (( DRY_RUN == 0 )) && (( RUN_PMC == 1 )); then
-  echo "pmc raw trials saved: $PMC_CSV"
+	echo "pmc raw trials saved: $PMC_CSV"
 fi
