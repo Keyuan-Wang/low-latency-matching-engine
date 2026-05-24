@@ -16,7 +16,7 @@ if (( DRY_RUN == 0 )); then
 	cmake --build "$ROOT/build" -j
 fi
 
-SCENARIOS_CSV="${SCENARIOS:-lmt_rest,lmt_cross_deep,lmt_cross_shallow,mkt_sweep_deep,cxl_miss,cxl_hit,dup_reject}"
+SCENARIOS_CSV="${SCENARIOS:-hft_add_near,hft_add_far,hft_cancel_hot,hft_cancel_cold,hft_modify_near,hft_cxl_miss,hft_market_small,hft_market_large}"
 METRICS_CSV="${METRICS:-latency,pmc}"
 ORDERS_CSV="${ORDERS:-100,500,1000,5000,10000,50000,100000}"
 LEVELS_CSV="${LEVELS:-10,100,1000}"
@@ -67,6 +67,15 @@ bin_for_scenario() {
 		cxl_hit) echo "$ROOT/build/benchmark/bench_cxl_hit" ;;
 		lmt_cross_shallow) echo "$ROOT/build/benchmark/bench_lmt_cross_shallow" ;;
 		overall) echo "$ROOT/build/benchmark/bench_overall" ;;
+		hft_add_near) echo "$ROOT/build/benchmark/bench_hft_add_near" ;;
+		hft_add_far) echo "$ROOT/build/benchmark/bench_hft_add_far" ;;
+		hft_cancel_hot) echo "$ROOT/build/benchmark/bench_hft_cancel_hot" ;;
+		hft_cancel_cold) echo "$ROOT/build/benchmark/bench_hft_cancel_cold" ;;
+		hft_modify_near) echo "$ROOT/build/benchmark/bench_hft_modify_near" ;;
+		hft_cxl_miss) echo "$ROOT/build/benchmark/bench_hft_cxl_miss" ;;
+		hft_market_small) echo "$ROOT/build/benchmark/bench_hft_market_small" ;;
+		hft_market_large) echo "$ROOT/build/benchmark/bench_hft_market_large" ;;
+		hft_macro) echo "$ROOT/build/benchmark/bench_hft_macro" ;;
 		*)
 			echo "unknown scenario: $1" >&2
 			return 1

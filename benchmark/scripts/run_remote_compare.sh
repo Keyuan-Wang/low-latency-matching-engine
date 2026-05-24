@@ -153,7 +153,7 @@ if [[ "$INSTALL_DEPS" == "1" ]]; then
   export DEBIAN_FRONTEND=noninteractive
   apt-get update
   apt-get install -y --no-install-recommends \
-    git ca-certificates build-essential cmake python3 python3-venv python3-pip
+    git ca-certificates build-essential cmake python3 python3-venv python3-pip libabsl-dev
 fi
 
 # ---- 2. Clone / fetch repo ----
