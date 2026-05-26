@@ -119,7 +119,6 @@ private:
 
     OrderPool pool_;
 
-    std::unordered_set<std::uint64_t> active_ids_{};         ///< Ids currently resting on book.
     std::unordered_set<std::uint64_t> pending_cancel_ids_{}; ///< Early cancel ids not yet seen on insert.
     absl::flat_hash_map<std::uint64_t, Order*> id_to_order_{};
 };
