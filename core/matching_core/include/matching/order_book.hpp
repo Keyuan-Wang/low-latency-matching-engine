@@ -12,6 +12,7 @@
 #include "absl/container/flat_hash_map.h"
 
 
+#include "matching/order_level.hpp"
 #include "types.hpp"
 #include "intrusive_list.hpp"
 #include "order_pool.hpp"
@@ -19,23 +20,19 @@
 namespace matching {
 
 
-using PriceLevel = IntrusiveList;
+using PriceLevel = OrderLevel;
 
 template <bool IsAsk>
 struct PriceCompare;
 
 template <>
 struct PriceCompare<true> {
-    bool operator()(std::int64_t lhs, std::int64_t rhs) const noexcept {
-        return lhs < rhs;
-    }
+    bool operator()(std::int64_t lhs, std::int64_t rhs) const noexcept { return lhs < rhs; }
 };
 
 template <>
 struct PriceCompare<false> {
-    bool operator()(std::int64_t lhs, std::int64_t rhs) const noexcept {
-        return lhs > rhs;
-    }
+    bool operator()(std::int64_t lhs, std::int64_t rhs) const noexcept { return lhs > rhs; }
 };
 
 /**
@@ -48,27 +45,26 @@ struct PriceCompare<false> {
 template <bool IsAsk>
 class SideBook {
 private:
+    OrderChunkPool* chunk_pool_;
     std::map<std::int64_t, PriceLevel, PriceCompare<IsAsk>> levels_{};
 public:
-    [[nodiscard]] bool empty() const noexcept {
-        return levels_.empty();
-    }
+    explicit SideBook(OrderChunkPool* chunk_pool) : chunk_pool_(chunk_pool) {};
 
-    [[nodiscard]] std::int64_t best_price() const {
-        return levels_.begin()->first;
-    }
 
-    [[nodiscard]] PriceLevel& best_level() {
-        return levels_.begin()->second;
-    }
+    [[nodiscard]] bool empty() const noexcept { return levels_.empty(); }
 
+    [[nodiscard]] std::int64_t best_price() const { return levels_.begin()->first; }
+
+    [[nodiscard]] PriceLevel& best_level() { return levels_.begin()->second; }
+
+    // if current price level does not exist, construct it with chunk_pool_
+    // if it exists, then just return the reference
     PriceLevel& get_or_create(std::int64_t price) {
-        return levels_[price];
+        auto [it, inserted] = levels_.try_emplace(price, chunk_pool_);
+        return it->second;
     }
 
-    void erase_best() {
-        levels_.erase(levels_.begin());
-    }
+    void erase_best() { levels_.erase(levels_.begin()); }
 };
 
 using AskBook = SideBook<true>;
@@ -89,7 +85,10 @@ using BidBook = SideBook<false>;
 class OrderBook {
 public:
     /** @brief Constructs an empty book. */
-    explicit OrderBook(std::size_t pool_capacity = 100000) : pool_(pool_capacity) {};
+    explicit OrderBook(std::size_t pool_capacity = 100000)
+        : chunk_pool_(pool_capacity / OrderChunkPool::kChunkSize + 1)
+        , bids_(&chunk_pool_)
+        , asks_(&chunk_pool_) {};
 
     /**
      * @brief Submit a limit order: match against the opposite side, rest remainder on book.
@@ -157,10 +156,10 @@ public:
     }
 
 private:
-    BidBook bids_{};   ///< Bid price levels (best bid at @c begin()).
-    AskBook asks_{};   ///< Ask price levels (best ask at @c begin()).
-
-    OrderPool pool_;
+    // chunk_pool_ declared before bids_, asks_, so that bids_/asks_ deconstructed priori to chunk_pool;
+    OrderChunkPool chunk_pool_;
+    BidBook bids_;   ///< Bid price levels (best bid at @c begin()).
+    AskBook asks_;   ///< Ask price levels (best ask at @c begin()).
 
     std::unordered_set<std::uint64_t> pending_cancel_ids_{}; ///< Early cancel ids not yet seen on insert.
     absl::flat_hash_map<std::uint64_t, Order*> id_to_order_{};

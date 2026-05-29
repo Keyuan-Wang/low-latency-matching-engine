@@ -7,8 +7,7 @@
 #include <cassert>
 
 #include "matching/order_book.hpp"
-#include "matching/intrusive_list.hpp"
-#include "matching/order_pool.hpp"
+#include "matching/order_level.hpp"
 #include "matching/types.hpp"
 
 namespace matching {
@@ -40,8 +39,7 @@ ErrorCode OrderBook::cancel_order(std::uint64_t order_id) {
 
     if (it != id_to_order_.end()) {
         Order* o = it->second;
-        o->parent_level->erase(*o);
-        pool_.release(o);
+        o->parent_level->remove(*o);
         id_to_order_.erase(order_id);
         return ErrorCode::Success;
     }
@@ -59,8 +57,7 @@ AddResult OrderBook::modify_order(std::uint64_t order_id, Side side, std::int64_
     auto it = id_to_order_.find(order_id);
     if (it != id_to_order_.end()) {
         Order* o = it->second;
-        o->parent_level->erase(*o);
-        pool_.release(o);
+        o->parent_level->remove(*o);
         id_to_order_.erase(order_id);
     }
 
@@ -124,8 +121,7 @@ AddResult OrderBook::add_limit_order(std::uint64_t order_id, Side side, std::int
                     id_to_order_.erase(maker.id);
 
                     Order* maker_ptr = &maker;
-                    price_level.erase(*maker_ptr);
-                    pool_.release(maker_ptr);
+                    price_level.remove(*maker_ptr);
                 }
             }
             
@@ -147,21 +143,34 @@ AddResult OrderBook::add_limit_order(std::uint64_t order_id, Side side, std::int
         return out;
     }
 
-    // add remaining limit order to book
-    Order* node = pool_.acquire();
-    // TODO: WHAT IF POOL IS ALREADY EMPTY?
-    assert(node != nullptr);
+    Order* node;
 
-    *node = {order_id, price, remaining, timestamp};
     if (side == Side::Buy) {
         auto& level = bids_.get_or_create(price);
-        level.push_back(*node);
+
+        node = level.allocate();
+
+        // we assume the order chunck pool is not full
+        assert(node != nullptr);
+
+        *node = {order_id, price, remaining, timestamp};
+
         node->parent_level = &level;
+        level.push_back(*node);
     } else {
         auto& level = asks_.get_or_create(price);
-        level.push_back(*node);
+
+        node = level.allocate();
+
+        // we assume the order chunck pool is not full
+        assert(node != nullptr);
+
+        *node = {order_id, price, remaining, timestamp};
+
         node->parent_level = &level;
+        level.push_back(*node);
     }
+
     id_to_order_.emplace(order_id, node);
 
     // output
@@ -217,8 +226,7 @@ AddResult OrderBook::add_market_order(std::uint64_t order_id, Side side, std::ui
                     id_to_order_.erase(maker.id);
 
                     Order* maker_ptr = &maker;
-                    price_level.erase(*maker_ptr);
-                    pool_.release(maker_ptr);
+                    price_level.remove(*maker_ptr);
                 }
             }
 

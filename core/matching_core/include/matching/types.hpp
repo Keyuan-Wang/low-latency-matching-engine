@@ -5,7 +5,7 @@
 
 namespace matching {
 
-class IntrusiveList;  // forward decl — full definition in intrusive_list.hpp
+class OrderLevel;  // forward decl — full definition in intrusive_list.hpp
 
 enum class Side {
     Buy,   ///< Bid side (buy book).
@@ -55,7 +55,7 @@ struct Order {
     Order* next = nullptr;
 
     // --- parent level links ---
-    IntrusiveList* parent_level = nullptr;
+    OrderLevel* parent_level = nullptr;
 };
 
 }

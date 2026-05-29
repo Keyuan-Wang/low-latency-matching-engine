@@ -6,8 +6,8 @@
 
 namespace matching {
 
-OrderLevel::OrderLevel(std::size_t capacity) : pool_(capacity) {
-    for (auto& o : pool_) {
+OrderLevel::OrderLevel(OrderChunkPool* chunk_pool) : chunk_pool_(chunk_pool) {
+    for (auto& chunk : *chunk_pool_) {
         o.next = free_head_;
         free_head_ = &o;
     }
