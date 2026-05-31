@@ -4,6 +4,12 @@ add_library(matching_core
   src/chunk_pool.cpp
 )
 
+set(LLMES_ORDER_CHUNK_SIZE "256" CACHE STRING "Number of orders stored in one matching Chunk")
+target_compile_definitions(matching_core
+  PUBLIC
+    LLMES_ORDER_CHUNK_SIZE=${LLMES_ORDER_CHUNK_SIZE}
+)
+
 target_include_directories(matching_core
   PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include

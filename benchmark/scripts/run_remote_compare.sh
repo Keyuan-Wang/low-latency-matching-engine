@@ -32,6 +32,18 @@ REPO_URL="${REPO_URL:-}"
 # Each pair is  branch_or_commit:version_tag
 VERSIONS="${VERSIONS:-phase2b:phase2b,phase2c:phase2c,phase2d:phase2d,phase2e:phase2e}"
 
+# --- optional compile-time kChunkSize sweep ---
+# Default is the original version-comparison behavior. Set CHUNK_SWEEP=1 to run
+# every version once per value in CHUNK_SIZES.
+#
+# Example:
+#   CHUNK_SWEEP=1 CHUNK_SIZES=32,64,128,256 VERSIONS="master:phase4b" ...
+#
+# One-command rollback to the old script behavior:
+#   CHUNK_SWEEP=0 ...
+CHUNK_SWEEP="${CHUNK_SWEEP:-0}"
+CHUNK_SIZES="${CHUNK_SIZES:-32,64,128,256}"
+
 # --- remote paths ---
 REMOTE_ROOT="${REMOTE_ROOT:-/root/llmes-bench}"
 REMOTE_REPO_DIR="${REMOTE_REPO_DIR:-$REMOTE_ROOT/repo}"
@@ -77,6 +89,11 @@ if [[ -z "$REPO_URL" ]]; then
   exit 1
 fi
 
+if [[ "$CHUNK_SWEEP" != "0" && "$CHUNK_SWEEP" != "1" ]]; then
+  echo "ERROR: CHUNK_SWEEP must be 0 or 1"
+  exit 1
+fi
+
 # Parse VERSIONS into two parallel arrays: commits[] and tags[]
 IFS=',' read -r -a RAW <<< "$VERSIONS"
 COMMITS=()
@@ -94,6 +111,11 @@ echo "  Versions : $N_VERSIONS"
 for ((i=0; i<N_VERSIONS; i++)); do
   printf "    [%d] %-30s  tag: %s\n" "$((i+1))" "${COMMITS[$i]}" "${TAGS[$i]}"
 done
+if [[ "$CHUNK_SWEEP" == "1" ]]; then
+  echo "  Chunk sweep : enabled ($CHUNK_SIZES)"
+else
+  echo "  Chunk sweep : disabled (legacy compare mode)"
+fi
 echo "  Server   : ${SSH_USER}@${SERVER_IP}"
 echo ""
 
@@ -115,6 +137,7 @@ ssh "${SSH_OPTS[@]}" "${SSH_USER}@${SERVER_IP}" \
    COMMITS_STR='$COMMITS_STR' TAGS_STR='$TAGS_STR' \
    REMOTE_ROOT='$REMOTE_ROOT' REMOTE_REPO_DIR='$REMOTE_REPO_DIR' \
    REMOTE_ARTIFACTS_DIR='$REMOTE_ARTIFACTS_DIR' REMOTE_TARBALL='$REMOTE_TARBALL' \
+   CHUNK_SWEEP='$CHUNK_SWEEP' CHUNK_SIZES='$CHUNK_SIZES' \
    SCENARIOS='$SCENARIOS' METRICS='$METRICS' ORDERS='$ORDERS' LEVELS='$LEVELS' \
    BATCH_SIZES='$BATCH_SIZES' TRIALS='$TRIALS' ITERS='$ITERS' WARMUP_ITERS='$WARMUP_ITERS' \
    SEED='$SEED' \
@@ -189,29 +212,61 @@ IFS=',' read -r -a COMMITS <<< "$COMMITS_STR"
 IFS=',' read -r -a TAGS    <<< "$TAGS_STR"
 N=${#COMMITS[@]}
 
+if [[ "$CHUNK_SWEEP" != "0" && "$CHUNK_SWEEP" != "1" ]]; then
+  echo "ERROR: CHUNK_SWEEP must be 0 or 1"
+  exit 1
+fi
+
+CHUNK_VALUES=()
+if [[ "$CHUNK_SWEEP" == "1" ]]; then
+  IFS=',' read -r -a RAW_CHUNKS <<< "$CHUNK_SIZES"
+  for chunk_size in "${RAW_CHUNKS[@]}"; do
+    chunk_size="${chunk_size//[[:space:]]/}"
+    if [[ ! "$chunk_size" =~ ^[1-9][0-9]*$ ]]; then
+      echo "ERROR: invalid chunk size: '$chunk_size'"
+      exit 1
+    fi
+    if (( chunk_size > 65535 )); then
+      echo "ERROR: chunk size exceeds uint16_t metadata limit: $chunk_size"
+      exit 1
+    fi
+    CHUNK_VALUES+=("$chunk_size")
+  done
+else
+  # Sentinel for the original behavior: do not pass LLMES_ORDER_CHUNK_SIZE.
+  CHUNK_VALUES=("default")
+fi
+
 RES_DIR="$REMOTE_REPO_DIR/benchmark/results"
 
 # ---- 4. Run benchmark for each version ----
 LAT_FILES=()
 PMC_FILES=()
-COMMIT_SHAS=()
+RUN_COMMIT_SHAS=()
+RUN_TAGS=()
+RUN_CHUNK_SIZES=()
 
-for ((idx=0; idx<N; idx++)); do
-  commit="${COMMITS[$idx]}"
-  tag="${TAGS[$idx]}"
-  prefix="v$((idx+1))"
+run_benchmark_variant() {
+  local tag="$1"
+  local prefix="$2"
+  local sha="$3"
+  local chunk_size="$4"
 
-  echo ""
-  echo "========== [$((idx+1))/$N]  $commit  (tag: $tag) =========="
+  local cmake_args=(
+    -S .
+    -B build
+    -DCMAKE_BUILD_TYPE=Release
+    -DLLMES_BUILD_BENCHMARKS=ON
+  )
 
-  git checkout "origin/$commit" 2>/dev/null || git checkout --detach "$commit"
-  sha="$(git rev-parse --short HEAD)"
-  COMMIT_SHAS+=("$sha")
-  echo "  commit = $sha"
+  if [[ "$chunk_size" != "default" ]]; then
+    cmake_args+=("-DLLMES_ORDER_CHUNK_SIZE=$chunk_size")
+  fi
 
-  # Rebuild — previous version's build dir may be incompatible
+  # Rebuild for each variant. This is required because kChunkSize is a
+  # compile-time constant embedded in Chunk's std::array layout.
   rm -rf build
-  cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DLLMES_BUILD_BENCHMARKS=ON
+  cmake "${cmake_args[@]}"
   cmake --build build -j"$(nproc)"
 
   echo "--- ctest ($tag) ---"
@@ -233,11 +288,47 @@ for ((idx=0; idx<N; idx++)); do
     ORDERS=100000 LEVELS=100 BATCH_SIZES=100000 ITERS=1 WARMUP_ITERS=1 \
     VERSION_TAG="$tag" COMMIT_SHA="$sha" \
     bash benchmark/scripts/run_benchmarks.sh 2>&1 | tee "$REMOTE_ARTIFACTS_DIR/run_macro_${prefix}.log"
+}
+
+for ((idx=0; idx<N; idx++)); do
+  commit="${COMMITS[$idx]}"
+  tag="${TAGS[$idx]}"
+  prefix="v$((idx+1))"
+
+  echo ""
+  echo "========== [$((idx+1))/$N]  $commit  (tag: $tag) =========="
+
+  git checkout "origin/$commit" 2>/dev/null || git checkout --detach "$commit"
+  sha="$(git rev-parse --short HEAD)"
+  echo "  commit = $sha"
+
+  for chunk_idx in "${!CHUNK_VALUES[@]}"; do
+    chunk_size="${CHUNK_VALUES[$chunk_idx]}"
+
+    if [[ "$chunk_size" == "default" ]]; then
+      run_tag="$tag"
+      run_prefix="$prefix"
+      chunk_label="default"
+    else
+      run_tag="${tag}_chunk${chunk_size}"
+      run_prefix="${prefix}_c${chunk_size}"
+      chunk_label="$chunk_size"
+    fi
+
+    echo ""
+    echo "----- Variant: tag=$run_tag  chunk_size=$chunk_label -----"
+
+    run_benchmark_variant "$run_tag" "$run_prefix" "$sha" "$chunk_size"
+
+    RUN_COMMIT_SHAS+=("$sha")
+    RUN_TAGS+=("$run_tag")
+    RUN_CHUNK_SIZES+=("$chunk_label")
+  done
 done
 
 # ---- 5. Merge all versions ----
 echo ""
-echo "--- Merging $N versions ---"
+echo "--- Merging ${#RUN_TAGS[@]} benchmark variants ---"
 
 COMBINED_LAT="$RES_DIR/${COMPARE_PREFIX}_latency_raw_trials.csv"
 COMBINED_PMC="$RES_DIR/${COMPARE_PREFIX}_pmc_raw_trials.csv"
@@ -289,9 +380,12 @@ FIXED_ORDERS="$FIXED_ORDERS" \
 # ---- 7. Environment info ----
 {
   echo "timestamp=$(date -Iseconds)"
-  for ((idx=0; idx<N; idx++)); do
-    echo "version_$((idx+1))_commit=${COMMIT_SHAS[$idx]}"
-    echo "version_$((idx+1))_tag=${TAGS[$idx]}"
+  echo "chunk_sweep=$CHUNK_SWEEP"
+  echo "chunk_sizes=$CHUNK_SIZES"
+  for ((idx=0; idx<${#RUN_TAGS[@]}; idx++)); do
+    echo "variant_$((idx+1))_commit=${RUN_COMMIT_SHAS[$idx]}"
+    echo "variant_$((idx+1))_tag=${RUN_TAGS[$idx]}"
+    echo "variant_$((idx+1))_chunk_size=${RUN_CHUNK_SIZES[$idx]}"
   done
   echo "trials=$TRIALS"
   echo "iters=$ITERS"

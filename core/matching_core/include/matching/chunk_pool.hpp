@@ -8,12 +8,18 @@
 
 #include "matching/types.hpp"
 
+#ifndef LLMES_ORDER_CHUNK_SIZE
+#define LLMES_ORDER_CHUNK_SIZE 256
+#endif
+
 namespace matching {
 
 
 class Chunk {
 public:
-    static constexpr std::size_t kChunkSize = 256;
+    static constexpr std::size_t kChunkSize = static_cast<std::size_t>(LLMES_ORDER_CHUNK_SIZE);
+    static_assert(kChunkSize > 0, "LLMES_ORDER_CHUNK_SIZE must be positive");
+    static_assert(kChunkSize <= 65535, "LLMES_ORDER_CHUNK_SIZE must fit in uint16_t");
     
     explicit Chunk() noexcept;
 
