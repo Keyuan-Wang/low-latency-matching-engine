@@ -56,6 +56,12 @@ struct Order {
 
     // --- parent level links ---
     OrderLevel* parent_level = nullptr;
+
+    void clear() {
+        prev = nullptr;
+        next = nullptr;
+        parent_level = nullptr;
+    }
 };
 
 }
