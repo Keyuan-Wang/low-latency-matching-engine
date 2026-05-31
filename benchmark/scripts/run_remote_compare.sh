@@ -124,6 +124,7 @@ COMMITS_STR=$(IFS=','; echo "${COMMITS[*]}")
 TAGS_STR=$(IFS=','; echo "${TAGS[*]}")
 
 SSH_OPTS=(-i "$SSH_KEY" -p "$SSH_PORT" -o StrictHostKeyChecking=accept-new)
+SCP_OPTS=(-i "$SSH_KEY" -P "$SSH_PORT" -o StrictHostKeyChecking=accept-new)
 
 STAMP="$(date +%Y%m%d_%H%M%S)"
 LOCAL_TARBALL="$LOCAL_OUT_DIR/bench_compare_${STAMP}.tgz"
@@ -441,7 +442,7 @@ else
   echo ""
   echo "[Download] Fetching artifacts from ${SSH_USER}@${SERVER_IP} ..."
   mkdir -p "$LOCAL_OUT_DIR"
-  scp "${SSH_OPTS[@]}" "${SSH_USER}@${SERVER_IP}:${REMOTE_TARBALL}" "$LOCAL_TARBALL"
+  scp "${SCP_OPTS[@]}" "${SSH_USER}@${SERVER_IP}:${REMOTE_TARBALL}" "$LOCAL_TARBALL"
 
   echo "[Extract] Unpacking locally ..."
   tar -xzf "$LOCAL_TARBALL" -C "$LOCAL_OUT_DIR"
