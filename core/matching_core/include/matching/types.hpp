@@ -57,7 +57,7 @@ struct Order {
     // --- parent level links ---
     PriceLevel* parent_level = nullptr;
 
-    void clear() {
+    void clear() noexcept {
         prev = nullptr;
         next = nullptr;
         parent_level = nullptr;

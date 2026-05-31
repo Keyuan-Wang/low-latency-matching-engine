@@ -11,16 +11,10 @@
 
 #include "absl/container/flat_hash_map.h"
 
-
-#include "matching/order_level.hpp"
-#include "types.hpp"
-#include "intrusive_list.hpp"
-#include "order_pool.hpp"
+#include "matching/price_level.hpp"
+#include "matching/types.hpp"
 
 namespace matching {
-
-
-using PriceLevel = OrderLevel;
 
 template <bool IsAsk>
 struct PriceCompare;
@@ -45,10 +39,16 @@ struct PriceCompare<false> {
 template <bool IsAsk>
 class SideBook {
 private:
-    OrderChunkPool* chunk_pool_;
+    // Shared fixed-size allocator owned by OrderBook. Each newly created
+    // PriceLevel borrows chunks from this pool, but SideBook still owns the
+    // ordered price index.
+    ChunkPool* chunk_pool_;
+
+    // Keep std::map for this phase: it preserves PriceLevel object addresses
+    // and gives O(1) access to the best level through begin().
     std::map<std::int64_t, PriceLevel, PriceCompare<IsAsk>> levels_{};
 public:
-    explicit SideBook(OrderChunkPool* chunk_pool) : chunk_pool_(chunk_pool) {};
+    explicit SideBook(ChunkPool* chunk_pool) noexcept : chunk_pool_(chunk_pool) {};
 
 
     [[nodiscard]] bool empty() const noexcept { return levels_.empty(); }
@@ -57,8 +57,9 @@ public:
 
     [[nodiscard]] PriceLevel& best_level() { return levels_.begin()->second; }
 
-    // if current price level does not exist, construct it with chunk_pool_
-    // if it exists, then just return the reference
+    // Construct the PriceLevel in-place only when the price is first seen.
+    // PriceLevel is intentionally non-copyable and non-movable, so do not use
+    // operator[], insert_or_assign(), or pair-based insertions here.
     PriceLevel& get_or_create(std::int64_t price) {
         auto [it, inserted] = levels_.try_emplace(price, chunk_pool_);
         return it->second;
@@ -75,12 +76,14 @@ using BidBook = SideBook<false>;
  *
  * @details
  * - Bids and asks are stored in separate @ref BidBook / @ref AskBook maps.
- * - Each price maps to a @ref PriceLevel (`std::list`) for FIFO per level.
- * - @ref active_ids_ tracks resting order ids for duplicate detection in O(1) average time.
+ * - Each price maps to a @ref PriceLevel backed by chunk-local order storage.
+ * - @ref id_to_order_ maps order ids directly to live orders for O(1) average
+ *   cancel/modify lookup.
  * - @ref pending_cancel_ids_ supports cancel-before-insert: unknown cancels are queued
  *   until an insert with the same id is rejected with @ref ErrorCode::PendingCancelExists.
  *
- * @note Cancel path scans books (Phase 1); later phases may add O(1) index by id.
+ * @note Empty non-best levels may remain in the ordered map until later phases
+ *       add side/price-aware level cleanup.
  */
 class OrderBook {
 public:
@@ -103,7 +106,7 @@ public:
      * @retval ErrorCode::Success Resting portion (if any) posted; or fully filled.
      * @retval ErrorCode::InvalidQuantity @p quantity == 0.
      * @retval ErrorCode::PendingCancelExists @p order_id in @ref pending_cancel_ids_.
-     * @retval ErrorCode::DuplicateOrderId @p order_id already in @ref active_ids_.
+     * @retval ErrorCode::DuplicateOrderId @p order_id already in @ref id_to_order_.
      */
     AddResult add_limit_order(std::uint64_t order_id, Side side, std::int64_t price,
                               std::uint64_t quantity, std::uint64_t timestamp);
@@ -156,8 +159,9 @@ public:
     }
 
 private:
-    // chunk_pool_ declared before bids_, asks_, so that bids_/asks_ deconstructed priori to chunk_pool;
-    OrderChunkPool chunk_pool_;
+    // Keep chunk_pool_ before bids_/asks_: members are destroyed in reverse
+    // declaration order, so price levels disappear before their backing pool.
+    ChunkPool chunk_pool_;
     BidBook bids_;   ///< Bid price levels (best bid at @c begin()).
     AskBook asks_;   ///< Ask price levels (best ask at @c begin()).
 

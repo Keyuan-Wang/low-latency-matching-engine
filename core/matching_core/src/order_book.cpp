@@ -7,7 +7,6 @@
 #include <cassert>
 
 #include "matching/order_book.hpp"
-#include "matching/order_level.hpp"
 #include "matching/types.hpp"
 
 namespace matching {
@@ -38,6 +37,8 @@ ErrorCode OrderBook::cancel_order(std::uint64_t order_id) {
     auto it = id_to_order_.find(order_id);
 
     if (it != id_to_order_.end()) {
+        // The id index points directly to the live Order. The Order carries
+        // its parent PriceLevel, so cancel does not need to search by price.
         Order* o = it->second;
         o->parent_level->remove(*o);
         id_to_order_.erase(order_id);
@@ -106,6 +107,8 @@ AddResult OrderBook::add_limit_order(std::uint64_t order_id, Side side, std::int
 
             auto& price_level = opposite_book.best_level();
 
+            // Within one price level, orders are consumed FIFO through the
+            // intrusive queue maintained by PriceLevel.
             while (remaining > 0 && !price_level.empty()) {
                 Order& maker = price_level.front();
 
@@ -120,11 +123,15 @@ AddResult OrderBook::add_limit_order(std::uint64_t order_id, Side side, std::int
                 if (maker.quantity == 0) {
                     id_to_order_.erase(maker.id);
 
+                    // Save the address before remove(): remove() returns the
+                    // slot to its chunk and clears the order links.
                     Order* maker_ptr = &maker;
                     price_level.remove(*maker_ptr);
                 }
             }
-            
+
+            // Best-level erasure is deliberately lazy: only the current best
+            // can affect matching progress in this ordered-map implementation.
             if (price_level.empty())
                 opposite_book.erase_best();
         }
@@ -150,9 +157,11 @@ AddResult OrderBook::add_limit_order(std::uint64_t order_id, Side side, std::int
 
         node = level.allocate();
 
-        // we assume the order chunck pool is not full
+        // Benchmark configuration assumes the fixed chunk pool is large enough.
         assert(node != nullptr);
 
+        // Aggregate assignment overwrites allocator-side links, including
+        // parent_level, so parent_level is restored immediately afterward.
         *node = {order_id, price, remaining, timestamp};
 
         node->parent_level = &level;
@@ -162,9 +171,11 @@ AddResult OrderBook::add_limit_order(std::uint64_t order_id, Side side, std::int
 
         node = level.allocate();
 
-        // we assume the order chunck pool is not full
+        // Benchmark configuration assumes the fixed chunk pool is large enough.
         assert(node != nullptr);
 
+        // Aggregate assignment overwrites allocator-side links, including
+        // parent_level, so parent_level is restored immediately afterward.
         *node = {order_id, price, remaining, timestamp};
 
         node->parent_level = &level;
@@ -211,6 +222,8 @@ AddResult OrderBook::add_market_order(std::uint64_t order_id, Side side, std::ui
         while (remaining > 0 && !opposite_book.empty()) {
             auto& price_level = opposite_book.best_level();
 
+            // Market orders ignore price limits and sweep the opposite best
+            // levels until filled or until the book is empty.
             while (remaining > 0 && !price_level.empty()) {
                 Order& maker = price_level.front();
 
@@ -225,6 +238,8 @@ AddResult OrderBook::add_market_order(std::uint64_t order_id, Side side, std::ui
                 if (maker.quantity == 0) {
                     id_to_order_.erase(maker.id);
 
+                    // Save the pointer before releasing the order slot back to
+                    // its owning chunk.
                     Order* maker_ptr = &maker;
                     price_level.remove(*maker_ptr);
                 }
