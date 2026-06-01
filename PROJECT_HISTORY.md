@@ -432,6 +432,42 @@ tracking may be drifting away from the actual book state. Before optimizing the
 engine based on this table, the benchmark accounting should be reviewed and
 made trustworthy.
 
+### Follow-up Fix (Local Working Tree)
+
+A follow-up benchmark fix was implemented in
+`benchmark/src/hft/bench_hft_macro.cpp` using the same operation-mix policy
+(random draw with 45/48/5/2 percentages), but replacing predictive batch
+generation with a planning replay model:
+
+- warmup still runs once
+- two books are rebuilt from the same warmup snapshot:
+  - `planning_book_` (untimed, used only in `Setup()`)
+  - `book_` (timed, used only in `RunOp()`)
+- each pending op is first executed on `planning_book_`
+- tracking is updated from real execution outputs (`trades`,
+  `remaining_quantity`) instead of prediction
+
+This removes the major source of false `cancel_miss`:
+
+- market-order maker fills are now reflected in tracking
+- modify outcomes (including crossing/fully-filled cases) are reflected
+- cluster cancels are validated against the planning book before enqueue
+
+Local smoke validation (`TRIALS=1`, `BATCH_SIZE=20000`) shows:
+
+| Operation | Share |
+|---|---:|
+| `add_rest` | 47.83% |
+| `add_cross` | 0.44% |
+| `cancel_hit` | 46.20% |
+| `cancel_miss` | 0.00% |
+| `modify_hit` | 3.79% |
+| `modify_miss` | 0.00% |
+| `market` | 1.75% |
+
+This result supports the earlier diagnosis that high `cancel_miss` was mainly a
+benchmark-accounting artifact rather than an engine behavior signal.
+
 ## Current Status
 
 As of the current repository state:
@@ -440,6 +476,5 @@ As of the current repository state:
 - per-operation HFT macro profiling has been added
 - ChunkPool benchmark artifacts are recorded but the design is not the active
   baseline
-- the next technical priority is to validate/fix macro workload accounting
-  before making another storage-level optimization
-
+- macro workload accounting fix is implemented in the local working tree and
+  smoke-tested; full cloud `TRIALS=10` verification is the next step

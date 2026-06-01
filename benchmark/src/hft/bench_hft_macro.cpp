@@ -29,6 +29,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
+#include <iterator>
 #include <memory>
 #include <string>
 #include <vector>
@@ -110,7 +111,8 @@ public:
         // --- Warmup (untimed, uses the old generate-execute-track loop) ---
         resting_orders_.clear();
         resting_ids_.clear();
-        level_counts_.clear();
+        ask_level_counts_.clear();
+        bid_level_counts_.clear();
         cluster_queue_.clear();
 
         // Initial seed: a few hundred adds for depth
@@ -123,6 +125,8 @@ public:
         }
 
         update_best_prices();
+        book_ = build_book_from_tracking(pool);
+        planning_book_ = build_book_from_tracking(pool);
 
         // --- Pre-generate the measured batch ---
         // All event params are decided now.  RunOp() just replays them on
@@ -134,6 +138,7 @@ public:
             generate_pending_one();
         }
         pending_.resize(args.batch_size);  // discard excess from clusters
+        planning_book_.reset();
     }
 
     bool RunOp(const benchmark_runner::Args& args, std::uint64_t iter_idx,
@@ -171,6 +176,12 @@ public:
     }
 
 private:
+    struct RestingMeta {
+        matching::Side side = matching::Side::Buy;
+        std::int64_t price = 0;
+        std::uint64_t qty = 0;
+    };
+
     enum class OpBucket : std::uint8_t {
         kAddRest = 0,
         kAddCross,
@@ -209,15 +220,17 @@ private:
     // ================================================================
 
     std::unique_ptr<matching::OrderBook> book_;
+    std::unique_ptr<matching::OrderBook> planning_book_;
     benchmark_runner::SplitMix64 event_rng_{42};
     benchmark_runner::SplitMix64 param_rng_{42};
     std::uint64_t id_counter_ = 0;
 
     // Resting-order tracking (used for cancel-target selection during the
     // pre-generation step in Setup, NOT during RunOp).
-    absl::flat_hash_map<std::uint64_t, std::int64_t> resting_orders_;
+    absl::flat_hash_map<std::uint64_t, RestingMeta> resting_orders_;
     std::vector<std::uint64_t> resting_ids_;
-    absl::flat_hash_map<std::int64_t, std::uint64_t> level_counts_;
+    std::map<std::int64_t, std::uint64_t, std::less<>> ask_level_counts_;
+    std::map<std::int64_t, std::uint64_t, std::greater<>> bid_level_counts_;
 
     std::int64_t best_bid_ = 0;
     std::int64_t best_ask_ = 1000;
@@ -299,13 +312,12 @@ private:
         op.qty = kQtyTable[param_rng_.next() % 32];
         op.oid = id_counter_++;
 
-        // Predictive tracking update (assuming success)
-        track_add_predicted(op.oid, op.price);
-        if (op.side == matching::Side::Buy && op.price > best_bid_)
-            best_bid_ = op.price;
-        if (op.side == matching::Side::Sell &&
-            (best_ask_ == 0 || op.price < best_ask_))
-            best_ask_ = op.price;
+        auto const res =
+            planning_book_->add_limit_order(op.oid, op.side, op.price, op.qty, op.oid);
+        apply_trade_fills(res.trades);
+        if (res.code == matching::ErrorCode::Success && res.remaining_quantity > 0) {
+            track_add_predicted(op.oid, op.side, op.price, res.remaining_quantity);
+        }
 
         pending_.push_back(op);
     }
@@ -314,25 +326,30 @@ private:
     void pending_cancel() {
         if (resting_orders_.empty()) { pending_limit_add(); return; }
 
-        std::uint64_t const target = select_cancel_target();
-        if (target == 0) { pending_limit_add(); return; }
+        for (int attempt = 0; attempt < 4; ++attempt) {
+            std::uint64_t const target = select_cancel_target();
+            if (target == 0) break;
 
-        PendingOp op;
-        op.type = PendingOp::kCancel;
-        op.target_id = target;
-        op.oid = 0;
-        pending_.push_back(op);
+            auto const code = planning_book_->cancel_order(target);
+            if (code != matching::ErrorCode::Success) {
+                track_remove_predicted(target);
+                continue;
+            }
 
-        // Predictive tracking update
-        auto const it = resting_orders_.find(target);
-        if (it != resting_orders_.end()) {
-            track_remove_predicted(target, it->second);
+            PendingOp op;
+            op.type = PendingOp::kCancel;
+            op.target_id = target;
+            op.oid = 0;
+            pending_.push_back(op);
+            track_remove_predicted(target);
+
+            if ((param_rng_.next() % 100) < 15) {
+                enqueue_cluster_pending();
+            }
+            return;
         }
 
-        // Cluster generation: push extra cancel ops into pregen_queue_
-        if ((param_rng_.next() % 100) < 15) {
-            enqueue_cluster_pending();
-        }
+        pending_limit_add();
     }
 
     // --- Modify pre-gen ---
@@ -343,8 +360,8 @@ private:
         if (target == 0) { pending_limit_add(); return; }
 
         auto const it = resting_orders_.find(target);
-        std::int64_t const old_price =
-            (it != resting_orders_.end()) ? it->second : 0;
+        if (it == resting_orders_.end()) { pending_limit_add(); return; }
+        std::int64_t const old_price = it->second.price;
 
         int const delta = 1 + static_cast<int>(param_rng_.next() % 3);
         std::int64_t const new_price =
@@ -359,16 +376,21 @@ private:
         op.qty = new_qty;
         op.target_id = target;
         op.oid = id_counter_++;
-        pending_.push_back(op);
 
-        // Predictive tracking update
-        if (old_price > 0) track_remove_predicted(target, old_price);
-        track_add_predicted(target, new_price);
-        if (op.side == matching::Side::Buy && new_price > best_bid_)
-            best_bid_ = new_price;
-        if (op.side == matching::Side::Sell &&
-            (best_ask_ == 0 || new_price < best_ask_))
-            best_ask_ = new_price;
+        auto const res =
+            planning_book_->modify_order(op.target_id, op.side, op.price, op.qty, op.oid);
+        if (res.code != matching::ErrorCode::Success) {
+            track_remove_predicted(target);
+            pending_limit_add();
+            return;
+        }
+
+        track_remove_predicted(target);
+        apply_trade_fills(res.trades);
+        if (res.remaining_quantity > 0) {
+            track_add_predicted(target, op.side, op.price, res.remaining_quantity);
+        }
+        pending_.push_back(op);
     }
 
     // --- Market order pre-gen ---
@@ -390,13 +412,10 @@ private:
             op.market_qty = static_cast<std::uint64_t>(total * 0.8);
 
         op.oid = id_counter_++;
+        auto const res =
+            planning_book_->add_market_order(op.oid, op.side, op.market_qty, op.oid);
+        apply_trade_fills(res.trades);
         pending_.push_back(op);
-
-        // We cannot predict which specific maker orders will be filled by
-        // the market order (the engine decides based on FIFO queue order).
-        // Skip tracking updates -- the tracking will be slightly optimistic
-        // for remaining events in this batch, but the error is negligible
-        // (market is 2% of events) and resets every iteration.
     }
 
     // ================================================================
@@ -715,33 +734,80 @@ private:
     //  Tracking helpers -- only called during warmup + pre-generation
     // ================================================================
 
-    void track_add_predicted(std::uint64_t id, std::int64_t price) {
-        resting_orders_[id] = price;
+    void track_add_predicted(std::uint64_t id, matching::Side side, std::int64_t price,
+                             std::uint64_t qty) {
+        track_remove_predicted(id);
+        resting_orders_[id] = RestingMeta{side, price, qty};
         resting_ids_.push_back(id);
-        ++level_counts_[price];
+        if (side == matching::Side::Buy) {
+            ++bid_level_counts_[price];
+        } else {
+            ++ask_level_counts_[price];
+        }
+        update_best_prices();
     }
 
-    void track_remove_predicted(std::uint64_t id, std::int64_t price) {
-        resting_orders_.erase(id);
-        auto lc = level_counts_.find(price);
-        if (lc != level_counts_.end() && lc->second > 0) {
-            --lc->second;
-            if (lc->second == 0) level_counts_.erase(lc);
+    void track_remove_predicted(std::uint64_t id) {
+        auto it = resting_orders_.find(id);
+        if (it == resting_orders_.end()) return;
+
+        if (it->second.side == matching::Side::Buy) {
+            auto lc = bid_level_counts_.find(it->second.price);
+            if (lc != bid_level_counts_.end()) {
+                if (lc->second > 0) --lc->second;
+                if (lc->second == 0) bid_level_counts_.erase(lc);
+            }
+        } else {
+            auto lc = ask_level_counts_.find(it->second.price);
+            if (lc != ask_level_counts_.end()) {
+                if (lc->second > 0) --lc->second;
+                if (lc->second == 0) ask_level_counts_.erase(lc);
+            }
         }
+        resting_orders_.erase(it);
+        update_best_prices();
+    }
+
+    void apply_trade_fills(const std::vector<matching::Trade>& trades) {
+        for (const auto& trade : trades) {
+            auto it = resting_orders_.find(trade.maker_order_id);
+            if (it == resting_orders_.end()) continue;
+
+            if (trade.quantity >= it->second.qty) {
+                track_remove_predicted(trade.maker_order_id);
+                continue;
+            }
+
+            it->second.qty -= trade.quantity;
+        }
+    }
+
+    void compact_resting_ids() {
+        resting_ids_.clear();
+        resting_ids_.reserve(resting_orders_.size());
+        for (const auto& [id, _] : resting_orders_) resting_ids_.push_back(id);
+    }
+
+    std::unique_ptr<matching::OrderBook>
+    build_book_from_tracking(std::size_t pool_capacity) {
+        auto book = std::make_unique<matching::OrderBook>(pool_capacity);
+        std::vector<std::uint64_t> ids;
+        ids.reserve(resting_orders_.size());
+        for (const auto& [id, _] : resting_orders_) ids.push_back(id);
+        std::sort(ids.begin(), ids.end());
+
+        for (std::uint64_t id : ids) {
+            auto it = resting_orders_.find(id);
+            if (it == resting_orders_.end()) continue;
+            auto const& meta = it->second;
+            book->add_limit_order(id, meta.side, meta.price, meta.qty, id);
+        }
+        return book;
     }
 
     void update_best_prices() {
-        best_bid_ = 0;
-        best_ask_ = 0;
-        for (auto const& [price, count] : level_counts_) {
-            if (count == 0) continue;
-            if (price >= 1000) {
-                if (best_ask_ == 0 || price < best_ask_) best_ask_ = price;
-            } else {
-                if (best_bid_ == 0 || price > best_bid_) best_bid_ = price;
-            }
-        }
-        if (best_ask_ == 0) best_ask_ = 1000;
+        best_bid_ = bid_level_counts_.empty() ? 0 : bid_level_counts_.begin()->first;
+        best_ask_ = ask_level_counts_.empty() ? 1000 : ask_level_counts_.begin()->first;
     }
 
     // ================================================================
@@ -769,15 +835,14 @@ private:
         std::uint64_t const oid = id_counter_++;
         auto const res =
             book_->add_limit_order(oid, side, price, qty, oid);
-        if (res.code == matching::ErrorCode::Success && res.remaining_quantity > 0) {
-            track_add_predicted(oid, price);
-            if (side == matching::Side::Buy && price > best_bid_) best_bid_ = price;
-            if (side == matching::Side::Sell &&
-                (best_ask_ == 0 || price < best_ask_))
-                best_ask_ = price;
+        apply_trade_fills(res.trades);
+        if (res.code == matching::ErrorCode::Success) {
+            if (res.remaining_quantity > 0) {
+                track_add_predicted(oid, side, price, res.remaining_quantity);
+            }
             return true;
         }
-        return (res.code == matching::ErrorCode::Success);
+        return false;
     }
 
     bool do_cancel_random() {
@@ -790,10 +855,7 @@ private:
     bool do_cancel(std::uint64_t target_id) {
         auto const code = book_->cancel_order(target_id);
         if (code == matching::ErrorCode::Success) {
-            auto const it = resting_orders_.find(target_id);
-            if (it != resting_orders_.end()) {
-                track_remove_predicted(target_id, it->second);
-            }
+            track_remove_predicted(target_id);
             if ((param_rng_.next() % 100) < 15) {
                 enqueue_cluster_legacy();
             }
@@ -807,8 +869,8 @@ private:
         std::uint64_t const target = select_cancel_target();
         if (target == 0) return do_limit_add();
         auto const it = resting_orders_.find(target);
-        std::int64_t const old_price =
-            (it != resting_orders_.end()) ? it->second : 0;
+        if (it == resting_orders_.end()) return do_limit_add();
+        std::int64_t const old_price = it->second.price;
         int const delta = 1 + static_cast<int>(param_rng_.next() % 3);
         std::int64_t const new_price =
             old_price + ((param_rng_.next() % 2 == 0) ? -delta : delta);
@@ -820,14 +882,10 @@ private:
         auto const res =
             book_->modify_order(target, side, new_price, new_qty, ts);
         if (res.code == matching::ErrorCode::Success) {
-            if (old_price > 0) track_remove_predicted(target, old_price);
+            track_remove_predicted(target);
+            apply_trade_fills(res.trades);
             if (res.remaining_quantity > 0) {
-                track_add_predicted(target, new_price);
-                if (side == matching::Side::Buy && new_price > best_bid_)
-                    best_bid_ = new_price;
-                if (side == matching::Side::Sell &&
-                    (best_ask_ == 0 || new_price < best_ask_))
-                    best_ask_ = new_price;
+                track_add_predicted(target, side, new_price, res.remaining_quantity);
             }
             return true;
         }
@@ -853,13 +911,7 @@ private:
             book_->add_market_order(oid, side, qty, oid);
         if (res.code == matching::ErrorCode::Success ||
             res.code == matching::ErrorCode::MarketRemainderCancelled) {
-            for (auto const& trade : res.trades) {
-                auto const rit = resting_orders_.find(trade.maker_order_id);
-                if (rit != resting_orders_.end()) {
-                    track_remove_predicted(trade.maker_order_id, rit->second);
-                }
-            }
-            update_best_prices();
+            apply_trade_fills(res.trades);
             return true;
         }
         return false;
@@ -871,6 +923,9 @@ private:
 
     std::uint64_t select_cancel_target() {
         if (resting_orders_.empty()) return 0;
+        if (resting_ids_.empty() || resting_ids_.size() > resting_orders_.size() * 8) {
+            compact_resting_ids();
+        }
 
         int const zroll = static_cast<int>(param_rng_.next() % 100);
         int min_dist, max_dist;
@@ -888,7 +943,7 @@ private:
                 resting_ids_[param_rng_.next() % resting_ids_.size()];
             auto const it = resting_orders_.find(id);
             if (it == resting_orders_.end()) continue;
-            int const dist = static_cast<int>(std::abs(it->second - best));
+            int const dist = static_cast<int>(std::abs(it->second.price - best));
             if (dist >= min_dist && dist <= max_dist) return id;
         }
         for (int attempt = 0; attempt < 100; ++attempt) {
@@ -896,7 +951,10 @@ private:
                 resting_ids_[param_rng_.next() % resting_ids_.size()];
             if (resting_orders_.contains(id)) return id;
         }
-        return 0;
+        std::size_t offset = static_cast<std::size_t>(param_rng_.next() % resting_orders_.size());
+        auto it = resting_orders_.begin();
+        std::advance(it, static_cast<std::ptrdiff_t>(offset));
+        return it->first;
     }
 
     // ================================================================
@@ -913,14 +971,18 @@ private:
                     resting_ids_[param_rng_.next() % resting_ids_.size()];
                 auto const it = resting_orders_.find(id);
                 if (it == resting_orders_.end()) continue;
-                if (std::abs(it->second - best) <= 3) {
+                if (std::abs(it->second.price - best) <= 3) {
+                    auto const code = planning_book_->cancel_order(id);
+                    if (code != matching::ErrorCode::Success) {
+                        track_remove_predicted(id);
+                        continue;
+                    }
                     PendingOp op;
                     op.type = PendingOp::kCancel;
                     op.target_id = id;
                     op.oid = 0;
                     pregen_queue_.push_back(op);
-                    // Predictive tracking update
-                    track_remove_predicted(id, it->second);
+                    track_remove_predicted(id);
                     break;
                 }
             }
@@ -937,7 +999,7 @@ private:
                     resting_ids_[param_rng_.next() % resting_ids_.size()];
                 auto const it = resting_orders_.find(id);
                 if (it == resting_orders_.end()) continue;
-                if (std::abs(it->second - best) <= 3) {
+                if (std::abs(it->second.price - best) <= 3) {
                     cluster_queue_.push_back(id);
                     break;
                 }
