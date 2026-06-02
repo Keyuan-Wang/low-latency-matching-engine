@@ -4,13 +4,14 @@
 	*
 	* Prefills the sell side with @p orders spread across @p levels, then
 	* cancels a randomly chosen order ID from the prefilled range. Measures
-	* the successful cancel hot path. Paired with bench_cxl_miss.cpp.
+	* the successful cancel hot path.
 	*/
 
 #include "benchmark_runner.hpp"
 #include "bench_common.hpp"
 
 #include <memory>
+#include <vector>
 
 namespace {
 
@@ -23,7 +24,8 @@ class CxlHitScenario : public benchmark_runner::IBenchScenario {
 	book_ = std::make_unique<matching::OrderBook>(args.orders + args.levels + 100);
 	rng_ = benchmark_runner::SplitMix64(args.seed + iter_idx * 9973ULL);
 	id_base_ = 600'000ULL;
-	benchmark_runner::PrefillSellBook(*book_, args.orders, args.levels, id_base_);
+	handles_.clear();
+	benchmark_runner::PrefillSellBook(*book_, args.orders, args.levels, id_base_, &handles_);
 
 	const std::uint64_t per_level =
 		std::max<std::uint64_t>(1, args.orders / std::max<std::uint64_t>(1, args.levels));
@@ -32,8 +34,8 @@ class CxlHitScenario : public benchmark_runner::IBenchScenario {
 
 	bool RunOp(const benchmark_runner::Args&, std::uint64_t,
 			 std::uint64_t, std::uint64_t& ok) override {
-	const std::uint64_t cancel_id = id_base_ + (rng_.next() % total_);
-	const auto code = book_->cancel_order(cancel_id);
+	const auto cancel_handle = handles_[rng_.next() % total_];
+	const auto code = book_->cancel_order(cancel_handle);
 	if (code == matching::ErrorCode::Success) ++ok;
 	return true;
 	}
@@ -45,6 +47,7 @@ class CxlHitScenario : public benchmark_runner::IBenchScenario {
 	benchmark_runner::SplitMix64 rng_{42};
 	std::uint64_t id_base_ = 0;
 	std::uint64_t total_ = 0;
+	std::vector<matching::OrderHandle> handles_;
 };
 
 }  // namespace

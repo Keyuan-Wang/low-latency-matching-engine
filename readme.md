@@ -11,7 +11,7 @@ A C++20 order-matching engine evolved incrementally from a correctness-first bas
 | Matching core | Done |
 | Data structure | `std::map<price, IntrusiveList>` + `absl::flat_hash_map<id, Order*>` (phase2e) |
 | Order types | Limit / Market / Cancel / Modify |
-| Benchmark suite | 8 legacy + 9 HFT scenarios |
+| Benchmark suite | 6 legacy + 8 HFT scenarios |
 | Hash table engineering | phase2b (`std::unordered_map`) → 2c (open-addressing) → 2d (Robin Hood) → **2e (`absl::flat_hash_map`)** |
 | HFT macro benchmark | Zero-Intelligence model with realistic order flow |
 | Market Data / Execution / Risk | Not started |
@@ -35,7 +35,7 @@ The cancel path is the dominant operation in any realistic order-book workload. 
 
 ## HFT Benchmark Suite (Phase 3)
 
-Eight micro benchmarks isolate individual data-structure paths under HFT-realistic access patterns. The macro benchmark (Zero-Intelligence model) measures sustained throughput under a continuous mixed stream:
+Seven micro benchmarks isolate individual data-structure paths under HFT-realistic access patterns. The macro benchmark (Zero-Intelligence model) measures sustained throughput under a continuous mixed stream:
 
 | Scenario | What it stresses | HFT share |
 |---|---|---|
@@ -44,7 +44,6 @@ Eight micro benchmarks isolate individual data-structure paths under HFT-realist
 | `hft_cancel_hot` | Erase from dense near-best level | ~45% |
 | `hft_cancel_cold` | Erase from sparse deep level | ~3% |
 | `hft_modify_near` | Erase + insert at hot price | ~5% |
-| `hft_cxl_miss` | Cancel-miss (worst-case lookup) | edge case |
 | `hft_market_small` | Bulk erase, 1-2 levels | ~1.7% |
 | `hft_market_large` | Bulk erase, 5+ levels | ~0.3% |
 | `hft_macro` | ZI model (all of the above, mixed) | definitive metric |
@@ -164,8 +163,8 @@ llmes/
 │   ├── src/
 │   │   ├── benchmark_runner.hpp    # IBenchScenario interface
 │   │   ├── bench_common.hpp        # PrefillSellBook, PrefillHftBook, utilities
-│   │   ├── legacy/                 # 8 legacy micro benchmarks
-│   │   └── hft/                    # 9 HFT benchmarks (micro + macro)
+│   │   ├── legacy/                 # 6 legacy benchmarks
+│   │   └── hft/                    # 8 HFT benchmarks (micro + macro)
 │   ├── runner/benchmark_runner.cpp
 │   ├── scripts/
 │   │   ├── run_benchmarks.sh

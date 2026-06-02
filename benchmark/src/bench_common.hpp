@@ -385,7 +385,8 @@ inline double Percentile(std::vector<double> values, double p) {
 	* @param id_base  Starting order-ID offset.
 	*/
 inline void PrefillSellBook(matching::OrderBook& book, std::uint64_t orders,
-														std::uint64_t levels, std::uint64_t id_base) {
+														std::uint64_t levels, std::uint64_t id_base,
+														std::vector<matching::OrderHandle>* handles = nullptr) {
 	const std::uint64_t per_level =
 			std::max<std::uint64_t>(1, orders / std::max<std::uint64_t>(1, levels));
 	std::uint64_t id = id_base;
@@ -393,7 +394,9 @@ inline void PrefillSellBook(matching::OrderBook& book, std::uint64_t orders,
 		// Starts at 1000 and increments by one tick per level.
 		const std::int64_t ask_price = 1000 + static_cast<std::int64_t>(lvl);
 		for (std::uint64_t j = 0; j < per_level; ++j) {
-			(void)book.add_limit_order(id, matching::Side::Sell, ask_price, 1, id);
+			const auto res =
+					book.add_limit_order(id, matching::Side::Sell, ask_price, 1, id);
+			if (handles != nullptr) handles->push_back(res.handle);
 			++id;
 		}
 	}
@@ -425,7 +428,8 @@ inline void PrefillHftBook(matching::OrderBook& book,
 														std::int64_t base_price = 1000,
 														std::uint64_t id_base = 100'000'000ULL,
 														std::uint64_t seed = 42,
-														matching::Side side = matching::Side::Sell) {
+														matching::Side side = matching::Side::Sell,
+														std::vector<matching::OrderHandle>* handles = nullptr) {
 	SplitMix64 rng(seed);
 	std::uint64_t id = id_base;
 	std::uint64_t remaining = orders;
@@ -448,7 +452,8 @@ inline void PrefillHftBook(matching::OrderBook& book,
 
 			const std::int64_t price = base_price + static_cast<std::int64_t>(tick);
 			for (std::uint64_t j = 0; j < count; ++j) {
-				(void)book.add_limit_order(id, side, price, 1, id);
+				const auto res = book.add_limit_order(id, side, price, 1, id);
+				if (handles != nullptr) handles->push_back(res.handle);
 				++id;
 			}
 			remaining -= count;
@@ -466,7 +471,8 @@ inline void PrefillHftBook(matching::OrderBook& book,
 
 			const std::int64_t price = base_price + static_cast<std::int64_t>(tick);
 			for (std::uint64_t j = 0; j < count; ++j) {
-				(void)book.add_limit_order(id, side, price, 1, id);
+				const auto res = book.add_limit_order(id, side, price, 1, id);
+				if (handles != nullptr) handles->push_back(res.handle);
 				++id;
 			}
 			remaining -= count;
@@ -477,7 +483,8 @@ inline void PrefillHftBook(matching::OrderBook& book,
 	if (remaining > 0) {
 		const std::int64_t price = base_price;
 		for (std::uint64_t j = 0; j < remaining; ++j) {
-			(void)book.add_limit_order(id, side, price, 1, id);
+			const auto res = book.add_limit_order(id, side, price, 1, id);
+			if (handles != nullptr) handles->push_back(res.handle);
 			++id;
 		}
 	}

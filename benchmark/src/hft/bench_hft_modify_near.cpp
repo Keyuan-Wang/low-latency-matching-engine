@@ -11,6 +11,7 @@
 #include "bench_common.hpp"
 
 #include <memory>
+#include <vector>
 
 namespace {
 
@@ -24,9 +25,11 @@ public:
         rng_ = benchmark_runner::SplitMix64(args.seed + iter_idx * 9973ULL);
         id_counter_ = 1'000'000ULL + args.seed + iter_idx * 9973ULL;
         id_base_ = 200'000'000ULL;
+        handles_.clear();
 
         benchmark_runner::PrefillHftBook(*book_, args.orders, args.levels,
-                                         1000, id_base_, rng_.next());
+                                         1000, id_base_, rng_.next(),
+                                         matching::Side::Sell, &handles_);
 
         // Hot zone: tick 0 (20%) + tick 1 (18%)
         std::uint64_t tick0 = static_cast<std::uint64_t>(0.20 * args.orders);
@@ -39,12 +42,12 @@ public:
 
     bool RunOp(const benchmark_runner::Args&, std::uint64_t,
                std::uint64_t, std::uint64_t& ok) override {
-        const std::uint64_t mod_id = id_base_ + (rng_.next() % hot_count_);
+        const auto mod_handle = handles_[rng_.next() % hot_count_];
         // New buy order near the best ask, qty 1-10
         const std::int64_t new_price = best_price_ - 1 - static_cast<std::int64_t>(rng_.next() % 2);
         const std::uint64_t new_qty = 1 + (rng_.next() % 10);
         const std::uint64_t ts = id_counter_++;
-        const auto res = book_->modify_order(mod_id, matching::Side::Buy,
+        const auto res = book_->modify_order(mod_handle, matching::Side::Buy,
                                              new_price, new_qty, ts);
         if (res.code == matching::ErrorCode::Success) ++ok;
         return true;
@@ -59,6 +62,7 @@ private:
     std::uint64_t id_base_ = 0;
     std::uint64_t hot_count_ = 0;
     std::int64_t best_price_ = 0;
+    std::vector<matching::OrderHandle> handles_;
 };
 
 }  // namespace

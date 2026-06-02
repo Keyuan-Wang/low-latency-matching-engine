@@ -39,7 +39,7 @@ REMOTE_TARBALL="${REMOTE_TARBALL:-$REMOTE_ROOT/bench_artifacts.tgz}"
 LOCAL_OUT_DIR="${LOCAL_OUT_DIR:-$(pwd)/server_results}"
 
 # --- benchmark campaign params (forwarded to run_benchmarks.sh) ---
-SCENARIOS="${SCENARIOS:-lmt_rest,lmt_cross_shallow,lmt_cross_deep,mkt_sweep_deep,cxl_hit,cxl_miss,dup_reject}"
+SCENARIOS="${SCENARIOS:-lmt_rest,lmt_cross_shallow,lmt_cross_deep,mkt_sweep_deep,cxl_hit}"
 METRICS="${METRICS:-latency,pmc}"
 ORDERS="${ORDERS:-100,500,1000,5000,10000,50000,100000}"
 LEVELS="${LEVELS:-10,100,1000}"

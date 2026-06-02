@@ -153,6 +153,46 @@ struct Order {
 
 The gateway maintains any required `order_id -> OrderHandle` mapping outside the matching hot path.
 
+## Handle Lifecycle: The Handle Is An Output, Not An Input
+
+A subtle but important point: the gateway cannot know the handle in advance. The handle is a *result* of the add, not a parameter of it. The sequence is:
+
+```text
+client submits new order with a client_order_id
+gateway forwards the add to the matching core
+matching core matches; if a remainder rests, it allocates a pool slot
+matching core returns the engine handle in AddResult
+gateway returns that handle as the exchange order id / order token in the add ack
+client later cancels/modifies using the exchange-issued token
+```
+
+This mirrors the real FIX model, where the client's `ClOrdID` (submitted with the order) and the exchange's `OrderID` (assigned on acknowledgment) are two different identifiers, and cancel/replace can reference the exchange `OrderID`. The handle is the engine's analogue of the exchange-assigned `OrderID`: it can only exist after the order rests, because only then is a slot assigned.
+
+So any earlier wording suggesting the gateway "pre-generates" the id is wrong. The gateway issues the token only after the matching core returns it.
+
+## Cost Relocation, Not Elimination
+
+This refactor must be described honestly. If cancel/modify requests still arrive keyed by an arbitrary `client_order_id`, then a `client_order_id -> order location` lookup is logically unavoidable — some component must perform it. Removing the hash map from the matching core does not make that lookup disappear; it **relocates** it to the gateway. Claiming the refactor "eliminates the hash lookup" for that deployment would be a false optimization.
+
+The reason the relocation is nonetheless a real and valuable optimization is the asymmetry between the two layers:
+
+- The matching core must be **single-threaded** to preserve deterministic price-time priority. It is the system's latency bottleneck, throughput bottleneck, and the part that cannot be scaled by adding cores. Every nanosecond removed from this thread is disproportionately valuable.
+- The gateway is **parallelizable and shardable**. The `client_order_id -> handle` lookup can run on ingress threads, be sharded by symbol or session, be prefetched while the order is still queued, and have its latency hidden by pipelining.
+
+So the same hash lookup, placed in the gateway, can be parallelized and pipelined away; placed in the matching core, it sits directly on the critical path. Phase 6 therefore claims to **remove the lookup from the single-threaded matching hot path**, not to eliminate it from the system.
+
+In the best case the cost is not merely relocated but avoided on the cancel path: if the client echoes back the exchange-issued token (e.g. FIX cancel carrying `OrderID`), the gateway can decode the handle directly with no hash lookup at all. The arbitrary-`client_order_id` case is the worst case, and even it is a net win for the latency-critical component.
+
+Note this is also where production needs the generation/token validation discussed above: letting an externally-supplied token index a reusable slot reintroduces the ABA risk, so the production form pairs the handle with a near-free generation check. The slot-index-only prototype is for measuring the performance ceiling; it is not the production-safe form.
+
+## Benchmark Scope: Matching Core vs End-to-End
+
+The benchmark measures the **matching core**, so it is correct for the timed `RunOp()` window to call `cancel_order(handle)` / `modify_order(handle, ...)` directly. In production the matching core's real input on these paths is already a resolved handle/token, so replaying handle-keyed ops faithfully models the engine; it is not a way of hiding cost.
+
+The requirement is that handle tracking and target selection happen in `Setup()` (untimed). It would be cheating to perform a `client_order_id -> handle` lookup inside the timed window. The gateway-side lookup is explicitly **out of scope** for the matching-core benchmark.
+
+If an end-to-end number is later desired, the gateway lookup hop should be measured and reported **separately** from the matching-core benchmark, so the two contracts (engine-core cost vs full request cost) are never conflated.
+
 ## Expected Hot-Path Changes
 
 `add_limit_order()`:
@@ -241,4 +281,4 @@ The first follow-up should be a pooled allocator for `std::map` nodes, because i
 
 ## Working Rule
 
-Phase 6 is not a micro-optimization of `absl::flat_hash_map`. It is a business-boundary refactor: move id validation to the gateway layer and let the matching core operate on engine handles. The target is to remove the cancel-index hash map from the hot path entirely. After that, re-profile and optimize the price-level container.
+Phase 6 is not a micro-optimization of `absl::flat_hash_map`. It is a business-boundary refactor: move id validation and `client_order_id -> handle` resolution to the gateway layer and let the matching core operate on engine handles. The target is to remove the cancel-index hash map from the single-threaded matching hot path — relocating the unavoidable lookup to a parallelizable tier, not pretending it vanishes from the system. After that, re-profile and optimize the price-level container.

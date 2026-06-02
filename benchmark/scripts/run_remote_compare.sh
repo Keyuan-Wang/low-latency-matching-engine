@@ -42,7 +42,7 @@ REMOTE_TARBALL="${REMOTE_TARBALL:-$REMOTE_ROOT/bench_compare_artifacts.tgz}"
 LOCAL_OUT_DIR="${LOCAL_OUT_DIR:-./server_results}"
 
 # --- benchmark campaign params (applied to every version) ---
-SCENARIOS="${SCENARIOS:-hft_add_near,hft_add_far,hft_cancel_hot,hft_cancel_cold,hft_modify_near,hft_cxl_miss,hft_market_small,hft_market_large}"
+SCENARIOS="${SCENARIOS:-hft_add_near,hft_add_far,hft_cancel_hot,hft_cancel_cold,hft_modify_near,hft_market_small,hft_market_large}"
 METRICS="${METRICS:-latency,pmc}"
 ORDERS="${ORDERS:-100,500,1000,5000,10000,50000,100000}"
 LEVELS="${LEVELS:-10,100,1000}"
