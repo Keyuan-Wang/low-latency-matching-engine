@@ -65,13 +65,12 @@ AddResult OrderBook::modify_order(OrderHandle h, Side side, std::int64_t price,
 AddResult OrderBook::add_limit_order(std::uint64_t order_id, Side side, std::int64_t price,
                                      std::uint64_t quantity, std::uint64_t timestamp) {
     AddResult out{};
+    out.initial_quantity = quantity;
 
     if (quantity == 0) {
         out.code = ErrorCode::InvalidQuantity;
         return out;
     }
-
-    out.initial_quantity = quantity;
 
     std::uint64_t remaining = quantity;
 
@@ -161,13 +160,12 @@ AddResult OrderBook::add_market_order(std::uint64_t order_id, Side side, std::ui
                                       std::uint64_t timestamp) {
 
     AddResult out{};
+    out.initial_quantity = quantity;
 
     if (quantity == 0) {
         out.code = ErrorCode::InvalidQuantity;
         return out;
     }
-
-    out.initial_quantity = quantity;
 
     std::uint64_t remaining = quantity;
 
