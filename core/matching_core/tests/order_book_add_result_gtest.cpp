@@ -18,7 +18,6 @@ std::ostream& operator<<(std::ostream& os, matching::ErrorCode c) {
     case matching::ErrorCode::InvalidQuantity: return os<<"InvalidQuantity";
     case matching::ErrorCode::DuplicateOrderId: return os<<"DuplicateOrderId";
     case matching::ErrorCode::UnknownOrderId: return os<<"UnknownOrderId";
-    case matching::ErrorCode::PendingCancelExists: return os<<"PendingCancelExists";
     case matching::ErrorCode::MarketRemainderCancelled: return os<<"MarketRemainderCancelled";
     } return os<<"ErrorCode("<<static_cast<int>(c)<<")";
 }
