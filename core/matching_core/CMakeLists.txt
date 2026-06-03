@@ -8,7 +8,6 @@ target_include_directories(matching_core
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
-# Try system package first; fall back to FetchContent (e.g. on WSL without libabsl-dev).
 find_package(absl QUIET)
 if(NOT absl_FOUND)
   include(FetchContent)
@@ -27,4 +26,23 @@ if(LLMES_BUILD_TESTS)
   )
   target_link_libraries(matching_core_tests PRIVATE matching_core)
   add_test(NAME matching_core_tests COMMAND matching_core_tests)
+
+  find_package(GTest QUIET)
+  if(NOT GTest_FOUND)
+    include(FetchContent)
+    FetchContent_Declare(googletest
+      GIT_REPOSITORY https://github.com/google/googletest.git
+      GIT_TAG v1.17.0
+    )
+    set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+    FetchContent_MakeAvailable(googletest)
+  endif()
+
+  add_executable(matching_core_gtests
+    tests/order_book_add_result_gtest.cpp
+  )
+  target_link_libraries(matching_core_gtests PRIVATE matching_core GTest::gtest_main)
+
+  include(GoogleTest)
+  gtest_discover_tests(matching_core_gtests)
 endif()
