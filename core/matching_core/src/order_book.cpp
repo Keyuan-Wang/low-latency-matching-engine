@@ -54,7 +54,6 @@ ErrorCode OrderBook::cancel_order(std::uint64_t order_id) {
  */
 AddResult OrderBook::modify_order(std::uint64_t order_id, Side side, std::int64_t price,
                                   std::uint64_t quantity, std::uint64_t timestamp) {
-    // Remove existing order with this id if present (no side effects on pending_cancel_ids_).
     auto it = id_to_order_.find(order_id);
     if (it != id_to_order_.end()) {
         Order* o = it->second;
@@ -63,10 +62,6 @@ AddResult OrderBook::modify_order(std::uint64_t order_id, Side side, std::int64_
         id_to_order_.erase(order_id);
     }
 
-    // A prior cancel that landed in pending_cancel_ids_ is overridden by modify.
-
-    // Delegate to add_limit_order — both duplicate and pending-cancel checks
-    // will pass since we just cleaned up state for this id.
     return add_limit_order(order_id, side, price, quantity, timestamp);
 }
 
