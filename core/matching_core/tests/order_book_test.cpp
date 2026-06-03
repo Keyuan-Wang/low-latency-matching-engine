@@ -49,25 +49,20 @@ int main() {
         expect(r.code == matching::ErrorCode::MarketRemainderCancelled, "remainder cancelled");
     }
 
-    // 4. pending cancel + duplicate / pending insert
+    // 4. cancel nonexistent order (no longer feeds pending-cancel set)
     {
         matching::OrderBook b;
-        expect(b.cancel_order(42) == matching::ErrorCode::UnknownOrderId, "unknown cancel");
-        expect(b.pending_cancel_count() == 1, "pending size");
-        const auto r = b.add_limit_order(42, matching::Side::Buy, 100, 1, 1);
-        expect(r.code == matching::ErrorCode::PendingCancelExists, "blocked by pending cancel");
+        const auto code = b.cancel_order(42);
+        expect(code == matching::ErrorCode::UnknownOrderId, "unknown cancel");
     }
 
-    // 5. duplicate order id rejected
+    // 5. duplicate order id: engine allows it (gateway-owned)
     {
         matching::OrderBook b;
         const auto first = b.add_limit_order(7, matching::Side::Buy, 100, 10, 1);
         expect(first.code == matching::ErrorCode::Success, "first insert ok");
-
         const auto dup = b.add_limit_order(7, matching::Side::Sell, 101, 5, 2);
-        expect(dup.code == matching::ErrorCode::DuplicateOrderId, "duplicate rejected");
-        expect(dup.remaining_quantity == 5, "full qty returned as remaining");
-        expect(dup.trades.empty(), "no trades on duplicate");
+        expect(dup.code == matching::ErrorCode::Success, "duplicate under gateway validation");
     }
 
     std::cout << "order_book tests passed\n";

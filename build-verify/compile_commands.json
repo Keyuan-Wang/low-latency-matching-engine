@@ -1,0 +1,116 @@
+[
+{
+  "directory": "/home/wangky1998/llmes/build-verify/core/matching_core",
+  "command": "/usr/bin/c++  -I/home/wangky1998/llmes/core/matching_core/include -O3 -DNDEBUG -std=c++20 -o CMakeFiles/matching_core.dir/src/order_book.cpp.o -c /home/wangky1998/llmes/core/matching_core/src/order_book.cpp",
+  "file": "/home/wangky1998/llmes/core/matching_core/src/order_book.cpp",
+  "output": "core/matching_core/CMakeFiles/matching_core.dir/src/order_book.cpp.o"
+},
+{
+  "directory": "/home/wangky1998/llmes/build-verify/core/matching_core",
+  "command": "/usr/bin/c++  -I/home/wangky1998/llmes/core/matching_core/include -O3 -DNDEBUG -std=c++20 -o CMakeFiles/matching_core.dir/src/order_pool.cpp.o -c /home/wangky1998/llmes/core/matching_core/src/order_pool.cpp",
+  "file": "/home/wangky1998/llmes/core/matching_core/src/order_pool.cpp",
+  "output": "core/matching_core/CMakeFiles/matching_core.dir/src/order_pool.cpp.o"
+},
+{
+  "directory": "/home/wangky1998/llmes/build-verify/core/matching_core",
+  "command": "/usr/bin/c++  -I/home/wangky1998/llmes/core/matching_core/include -O3 -DNDEBUG -std=c++20 -o CMakeFiles/matching_core_tests.dir/tests/order_book_test.cpp.o -c /home/wangky1998/llmes/core/matching_core/tests/order_book_test.cpp",
+  "file": "/home/wangky1998/llmes/core/matching_core/tests/order_book_test.cpp",
+  "output": "core/matching_core/CMakeFiles/matching_core_tests.dir/tests/order_book_test.cpp.o"
+},
+{
+  "directory": "/home/wangky1998/llmes/build-verify/benchmark",
+  "command": "/usr/bin/c++  -I/home/wangky1998/llmes/benchmark/src -I/home/wangky1998/llmes/core/matching_core/include -O3 -DNDEBUG -std=c++20 -o CMakeFiles/benchmark_runner_lib.dir/src/benchmark_runner.cpp.o -c /home/wangky1998/llmes/benchmark/src/benchmark_runner.cpp",
+  "file": "/home/wangky1998/llmes/benchmark/src/benchmark_runner.cpp",
+  "output": "benchmark/CMakeFiles/benchmark_runner_lib.dir/src/benchmark_runner.cpp.o"
+},
+{
+  "directory": "/home/wangky1998/llmes/build-verify/benchmark",
+  "command": "/usr/bin/c++  -I/home/wangky1998/llmes/benchmark/src -I/home/wangky1998/llmes/core/matching_core/include -O3 -DNDEBUG -std=c++20 -o CMakeFiles/bench_lmt_rest.dir/src/legacy/bench_lmt_rest.cpp.o -c /home/wangky1998/llmes/benchmark/src/legacy/bench_lmt_rest.cpp",
+  "file": "/home/wangky1998/llmes/benchmark/src/legacy/bench_lmt_rest.cpp",
+  "output": "benchmark/CMakeFiles/bench_lmt_rest.dir/src/legacy/bench_lmt_rest.cpp.o"
+},
+{
+  "directory": "/home/wangky1998/llmes/build-verify/benchmark",
+  "command": "/usr/bin/c++  -I/home/wangky1998/llmes/benchmark/src -I/home/wangky1998/llmes/core/matching_core/include -O3 -DNDEBUG -std=c++20 -o CMakeFiles/bench_lmt_cross_deep.dir/src/legacy/bench_lmt_cross_deep.cpp.o -c /home/wangky1998/llmes/benchmark/src/legacy/bench_lmt_cross_deep.cpp",
+  "file": "/home/wangky1998/llmes/benchmark/src/legacy/bench_lmt_cross_deep.cpp",
+  "output": "benchmark/CMakeFiles/bench_lmt_cross_deep.dir/src/legacy/bench_lmt_cross_deep.cpp.o"
+},
+{
+  "directory": "/home/wangky1998/llmes/build-verify/benchmark",
+  "command": "/usr/bin/c++  -I/home/wangky1998/llmes/benchmark/src -I/home/wangky1998/llmes/core/matching_core/include -O3 -DNDEBUG -std=c++20 -o CMakeFiles/bench_mkt_sweep_deep.dir/src/legacy/bench_mkt_sweep_deep.cpp.o -c /home/wangky1998/llmes/benchmark/src/legacy/bench_mkt_sweep_deep.cpp",
+  "file": "/home/wangky1998/llmes/benchmark/src/legacy/bench_mkt_sweep_deep.cpp",
+  "output": "benchmark/CMakeFiles/bench_mkt_sweep_deep.dir/src/legacy/bench_mkt_sweep_deep.cpp.o"
+},
+{
+  "directory": "/home/wangky1998/llmes/build-verify/benchmark",
+  "command": "/usr/bin/c++  -I/home/wangky1998/llmes/benchmark/src -I/home/wangky1998/llmes/core/matching_core/include -O3 -DNDEBUG -std=c++20 -o CMakeFiles/bench_cxl_hit.dir/src/legacy/bench_cxl_hit.cpp.o -c /home/wangky1998/llmes/benchmark/src/legacy/bench_cxl_hit.cpp",
+  "file": "/home/wangky1998/llmes/benchmark/src/legacy/bench_cxl_hit.cpp",
+  "output": "benchmark/CMakeFiles/bench_cxl_hit.dir/src/legacy/bench_cxl_hit.cpp.o"
+},
+{
+  "directory": "/home/wangky1998/llmes/build-verify/benchmark",
+  "command": "/usr/bin/c++  -I/home/wangky1998/llmes/benchmark/src -I/home/wangky1998/llmes/core/matching_core/include -O3 -DNDEBUG -std=c++20 -o CMakeFiles/bench_lmt_cross_shallow.dir/src/legacy/bench_lmt_cross_shallow.cpp.o -c /home/wangky1998/llmes/benchmark/src/legacy/bench_lmt_cross_shallow.cpp",
+  "file": "/home/wangky1998/llmes/benchmark/src/legacy/bench_lmt_cross_shallow.cpp",
+  "output": "benchmark/CMakeFiles/bench_lmt_cross_shallow.dir/src/legacy/bench_lmt_cross_shallow.cpp.o"
+},
+{
+  "directory": "/home/wangky1998/llmes/build-verify/benchmark",
+  "command": "/usr/bin/c++  -I/home/wangky1998/llmes/benchmark/src -I/home/wangky1998/llmes/core/matching_core/include -O3 -DNDEBUG -std=c++20 -o CMakeFiles/bench_overall.dir/src/legacy/bench_overall.cpp.o -c /home/wangky1998/llmes/benchmark/src/legacy/bench_overall.cpp",
+  "file": "/home/wangky1998/llmes/benchmark/src/legacy/bench_overall.cpp",
+  "output": "benchmark/CMakeFiles/bench_overall.dir/src/legacy/bench_overall.cpp.o"
+},
+{
+  "directory": "/home/wangky1998/llmes/build-verify/benchmark",
+  "command": "/usr/bin/c++  -I/home/wangky1998/llmes/benchmark/src -I/home/wangky1998/llmes/core/matching_core/include -O3 -DNDEBUG -std=c++20 -o CMakeFiles/bench_hft_add_near.dir/src/hft/bench_hft_add_near.cpp.o -c /home/wangky1998/llmes/benchmark/src/hft/bench_hft_add_near.cpp",
+  "file": "/home/wangky1998/llmes/benchmark/src/hft/bench_hft_add_near.cpp",
+  "output": "benchmark/CMakeFiles/bench_hft_add_near.dir/src/hft/bench_hft_add_near.cpp.o"
+},
+{
+  "directory": "/home/wangky1998/llmes/build-verify/benchmark",
+  "command": "/usr/bin/c++  -I/home/wangky1998/llmes/benchmark/src -I/home/wangky1998/llmes/core/matching_core/include -O3 -DNDEBUG -std=c++20 -o CMakeFiles/bench_hft_add_far.dir/src/hft/bench_hft_add_far.cpp.o -c /home/wangky1998/llmes/benchmark/src/hft/bench_hft_add_far.cpp",
+  "file": "/home/wangky1998/llmes/benchmark/src/hft/bench_hft_add_far.cpp",
+  "output": "benchmark/CMakeFiles/bench_hft_add_far.dir/src/hft/bench_hft_add_far.cpp.o"
+},
+{
+  "directory": "/home/wangky1998/llmes/build-verify/benchmark",
+  "command": "/usr/bin/c++  -I/home/wangky1998/llmes/benchmark/src -I/home/wangky1998/llmes/core/matching_core/include -O3 -DNDEBUG -std=c++20 -o CMakeFiles/bench_hft_cancel_hot.dir/src/hft/bench_hft_cancel_hot.cpp.o -c /home/wangky1998/llmes/benchmark/src/hft/bench_hft_cancel_hot.cpp",
+  "file": "/home/wangky1998/llmes/benchmark/src/hft/bench_hft_cancel_hot.cpp",
+  "output": "benchmark/CMakeFiles/bench_hft_cancel_hot.dir/src/hft/bench_hft_cancel_hot.cpp.o"
+},
+{
+  "directory": "/home/wangky1998/llmes/build-verify/benchmark",
+  "command": "/usr/bin/c++  -I/home/wangky1998/llmes/benchmark/src -I/home/wangky1998/llmes/core/matching_core/include -O3 -DNDEBUG -std=c++20 -o CMakeFiles/bench_hft_cancel_cold.dir/src/hft/bench_hft_cancel_cold.cpp.o -c /home/wangky1998/llmes/benchmark/src/hft/bench_hft_cancel_cold.cpp",
+  "file": "/home/wangky1998/llmes/benchmark/src/hft/bench_hft_cancel_cold.cpp",
+  "output": "benchmark/CMakeFiles/bench_hft_cancel_cold.dir/src/hft/bench_hft_cancel_cold.cpp.o"
+},
+{
+  "directory": "/home/wangky1998/llmes/build-verify/benchmark",
+  "command": "/usr/bin/c++  -I/home/wangky1998/llmes/benchmark/src -I/home/wangky1998/llmes/core/matching_core/include -O3 -DNDEBUG -std=c++20 -o CMakeFiles/bench_hft_modify_near.dir/src/hft/bench_hft_modify_near.cpp.o -c /home/wangky1998/llmes/benchmark/src/hft/bench_hft_modify_near.cpp",
+  "file": "/home/wangky1998/llmes/benchmark/src/hft/bench_hft_modify_near.cpp",
+  "output": "benchmark/CMakeFiles/bench_hft_modify_near.dir/src/hft/bench_hft_modify_near.cpp.o"
+},
+{
+  "directory": "/home/wangky1998/llmes/build-verify/benchmark",
+  "command": "/usr/bin/c++  -I/home/wangky1998/llmes/benchmark/src -I/home/wangky1998/llmes/core/matching_core/include -O3 -DNDEBUG -std=c++20 -o CMakeFiles/bench_hft_market_small.dir/src/hft/bench_hft_market_small.cpp.o -c /home/wangky1998/llmes/benchmark/src/hft/bench_hft_market_small.cpp",
+  "file": "/home/wangky1998/llmes/benchmark/src/hft/bench_hft_market_small.cpp",
+  "output": "benchmark/CMakeFiles/bench_hft_market_small.dir/src/hft/bench_hft_market_small.cpp.o"
+},
+{
+  "directory": "/home/wangky1998/llmes/build-verify/benchmark",
+  "command": "/usr/bin/c++  -I/home/wangky1998/llmes/benchmark/src -I/home/wangky1998/llmes/core/matching_core/include -O3 -DNDEBUG -std=c++20 -o CMakeFiles/bench_hft_market_large.dir/src/hft/bench_hft_market_large.cpp.o -c /home/wangky1998/llmes/benchmark/src/hft/bench_hft_market_large.cpp",
+  "file": "/home/wangky1998/llmes/benchmark/src/hft/bench_hft_market_large.cpp",
+  "output": "benchmark/CMakeFiles/bench_hft_market_large.dir/src/hft/bench_hft_market_large.cpp.o"
+},
+{
+  "directory": "/home/wangky1998/llmes/build-verify/benchmark",
+  "command": "/usr/bin/c++  -I/home/wangky1998/llmes/benchmark/src -I/home/wangky1998/llmes/core/matching_core/include -O3 -DNDEBUG -std=c++20 -o CMakeFiles/bench_hft_macro.dir/src/hft/bench_hft_macro.cpp.o -c /home/wangky1998/llmes/benchmark/src/hft/bench_hft_macro.cpp",
+  "file": "/home/wangky1998/llmes/benchmark/src/hft/bench_hft_macro.cpp",
+  "output": "benchmark/CMakeFiles/bench_hft_macro.dir/src/hft/bench_hft_macro.cpp.o"
+},
+{
+  "directory": "/home/wangky1998/llmes/build-verify/benchmark",
+  "command": "/usr/bin/c++  -I/home/wangky1998/llmes/benchmark/src -I/home/wangky1998/llmes/core/matching_core/include -O3 -DNDEBUG -std=c++20 -o CMakeFiles/benchmark_smoke_test.dir/tests/benchmark_smoke_test.cpp.o -c /home/wangky1998/llmes/benchmark/tests/benchmark_smoke_test.cpp",
+  "file": "/home/wangky1998/llmes/benchmark/tests/benchmark_smoke_test.cpp",
+  "output": "benchmark/CMakeFiles/benchmark_smoke_test.dir/tests/benchmark_smoke_test.cpp.o"
+}
+]

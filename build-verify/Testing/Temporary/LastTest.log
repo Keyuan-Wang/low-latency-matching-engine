@@ -1,0 +1,19 @@
+Start testing: Jun 03 02:10 BST
+----------------------------------------------------------
+1/1 Testing: matching_core_tests
+1/1 Test: matching_core_tests
+Command: "/home/wangky1998/llmes/build-verify/core/matching_core/matching_core_tests"
+Directory: /home/wangky1998/llmes/build-verify/core/matching_core
+"matching_core_tests" start time: Jun 03 02:10 BST
+Output:
+----------------------------------------------------------
+order_book tests passed
+<end of output>
+Test time =   0.02 sec
+----------------------------------------------------------
+Test Passed.
+"matching_core_tests" end time: Jun 03 02:10 BST
+"matching_core_tests" time elapsed: 00:00:00
+----------------------------------------------------------
+
+End testing: Jun 03 02:10 BST

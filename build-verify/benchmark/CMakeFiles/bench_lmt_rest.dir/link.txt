@@ -1,0 +1,1 @@
+/usr/bin/c++ -O3 -DNDEBUG CMakeFiles/bench_lmt_rest.dir/src/legacy/bench_lmt_rest.cpp.o -o bench_lmt_rest  libbenchmark_runner_lib.a ../core/matching_core/libmatching_core.a 

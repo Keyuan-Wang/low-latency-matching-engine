@@ -1,0 +1,1 @@
+/usr/bin/c++ -O3 -DNDEBUG CMakeFiles/benchmark_smoke_test.dir/tests/benchmark_smoke_test.cpp.o -o benchmark_smoke_test  libbenchmark_runner_lib.a ../core/matching_core/libmatching_core.a 

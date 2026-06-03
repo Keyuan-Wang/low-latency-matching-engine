@@ -35,9 +35,6 @@ using BidBook = std::map<std::int64_t, PriceLevel, std::greater<>>;
  * @details
  * - Bids and asks are stored in separate @ref BidBook / @ref AskBook maps.
  * - Each price maps to a @ref PriceLevel (`std::list`) for FIFO per level.
- * - @ref active_ids_ tracks resting order ids for duplicate detection in O(1) average time.
- * - @ref pending_cancel_ids_ supports cancel-before-insert: unknown cancels are queued
- *   until an insert with the same id is rejected with @ref ErrorCode::PendingCancelExists.
  *
  * @note Cancel path scans books (Phase 1); later phases may add O(1) index by id.
  */
@@ -58,7 +55,6 @@ public:
      *
      * @retval ErrorCode::Success Resting portion (if any) posted; or fully filled.
      * @retval ErrorCode::InvalidQuantity @p quantity == 0.
-     * @retval ErrorCode::PendingCancelExists @p order_id in @ref pending_cancel_ids_.
      * @retval ErrorCode::DuplicateOrderId @p order_id already in @ref active_ids_.
      */
     AddResult add_limit_order(std::uint64_t order_id, Side side, std::int64_t price,
@@ -107,9 +103,6 @@ public:
      * @brief Number of ids waiting for a later insert after an early cancel.
      * @return Size of @ref pending_cancel_ids_.
      */
-    [[nodiscard]] std::size_t pending_cancel_count() const noexcept {
-        return pending_cancel_ids_.size();
-    }
 
 private:
     BidBook bids_{};   ///< Bid price levels (best bid at @c begin()).
@@ -117,8 +110,6 @@ private:
 
     OrderPool pool_;
 
-    std::unordered_set<std::uint64_t> active_ids_{};         ///< Ids currently resting on book.
-    std::unordered_set<std::uint64_t> pending_cancel_ids_{}; ///< Early cancel ids not yet seen on insert.
 };
 
 }  // namespace matching

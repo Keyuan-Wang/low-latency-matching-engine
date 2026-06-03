@@ -1,0 +1,1 @@
+/usr/bin/c++ -O3 -DNDEBUG CMakeFiles/bench_hft_market_large.dir/src/hft/bench_hft_market_large.cpp.o -o bench_hft_market_large  libbenchmark_runner_lib.a ../core/matching_core/libmatching_core.a 

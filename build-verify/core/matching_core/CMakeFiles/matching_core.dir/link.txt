@@ -1,0 +1,2 @@
+/usr/bin/ar qc libmatching_core.a CMakeFiles/matching_core.dir/src/order_book.cpp.o CMakeFiles/matching_core.dir/src/order_pool.cpp.o
+/usr/bin/ranlib libmatching_core.a

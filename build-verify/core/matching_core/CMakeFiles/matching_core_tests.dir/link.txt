@@ -1,0 +1,1 @@
+/usr/bin/c++ -O3 -DNDEBUG CMakeFiles/matching_core_tests.dir/tests/order_book_test.cpp.o -o matching_core_tests  libmatching_core.a 
