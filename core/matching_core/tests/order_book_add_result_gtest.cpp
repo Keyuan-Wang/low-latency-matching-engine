@@ -28,24 +28,24 @@ class Ref{
 public:
 matching::AddResult add_limit(uint64_t o,matching::Side s,int64_t p,uint64_t q,uint64_t){
 matching::AddResult r{};r.initial_quantity=q;if(q==0){r.code=matching::ErrorCode::InvalidQuantity;return r;}
-uint64_t rem=q;if(s==matching::Side::Buy)mlt(s,p,rem,as_,r);else mlt(s,p,rem,bs_,r);
+uint64_t rem=q;if(s==matching::Side::Buy)mlt(o,s,p,rem,as_,r);else mlt(s,p,rem,bs_,r);
 r.remaining_quantity=rem;if(rem==0){r.code=matching::ErrorCode::Success;return r;}
 rst(o,s,p,rem);r.code=matching::ErrorCode::Success;return r;}
 matching::AddResult add_mkt(uint64_t o,matching::Side s,uint64_t q,uint64_t){
 matching::AddResult r{};r.initial_quantity=q;if(q==0){r.code=matching::ErrorCode::InvalidQuantity;return r;}
-uint64_t rem=q;if(s==matching::Side::Buy)mmk(rem,as_,r);else mmk(rem,bs_,r);
+uint64_t rem=q;if(s==matching::Side::Buy)mmk(o,rem,as_,r);else mmk(rem,bs_,r);
 r.remaining_quantity=rem;r.code=(rem==0)?matching::ErrorCode::Success:matching::ErrorCode::MarketRemainderCancelled;return r;}
 matching::AddResult md(uint64_t o,matching::Side s,int64_t p,uint64_t q,uint64_t t){cl(o);return add_limit(o,s,p,q,t);}
 bool cl(uint64_t o){return cf(o,bs_)||cf(o,as_);}
 private:
 std::map<int64_t,std::deque<RO>,std::greater<>> bs_{};
 std::map<int64_t,std::deque<RO>,std::less<>> as_{};
-template<typename B>void mlt(matching::Side sd,int64_t lp,uint64_t& r,B& ob,matching::AddResult& o){
+template<typename B>void mlt(uint64_t oid,matching::Side sd,int64_t lp,uint64_t& r,B& ob,matching::AddResult& o){
 while(r>0&&!ob.empty()){auto bp=ob.begin()->first;if(!((sd==matching::Side::Buy)?(lp>=bp):(lp<=bp)))break;mlv(r,ob,o);}}
-template<typename B>void mmk(uint64_t& r,B& ob,matching::AddResult& o){while(r>0&&!ob.empty())mlv(r,ob,o);}
-template<typename B>void mlv(uint64_t& r,B& ob,matching::AddResult& o){
+template<typename B>void mmk(uint64_t oid,uint64_t& r,B& ob,matching::AddResult& o){while(r>0&&!ob.empty())mlv(r,ob,o);}
+template<typename B>void mlv(uint64_t oid,uint64_t& r,B& ob,matching::AddResult& o){
 auto li=ob.begin();auto& q=li->second;while(r>0&&!q.empty()){auto& m=q.front();auto f=std::min(r,m.q);
-o.trades.push_back(matching::Trade{0,m.id,m.p,f});m.q-=f;r-=f;o.filled_quantity+=f;if(m.q==0)q.pop_front();}
+o.trades.push_back(matching::Trade{oid,m.id,m.p,f});m.q-=f;r-=f;o.filled_quantity+=f;if(m.q==0)q.pop_front();}
 if(q.empty())ob.erase(li);}
 void rst(uint64_t o,matching::Side s,int64_t p,uint64_t q){if(s==matching::Side::Buy)bs_[p].push_back({o,p,q});else as_[p].push_back({o,p,q});}
 template<typename B>bool cf(uint64_t o,B& b){for(auto li=b.begin();li!=b.end();++li){auto& q=li->second;auto oi=std::find_if(q.begin(),q.end(),[&](const RO& x){return x.id==o;});if(oi==q.end())continue;q.erase(oi);if(q.empty())b.erase(li);return true;}return false;}
