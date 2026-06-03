@@ -97,6 +97,9 @@ public:
     /** @brief Constructs an empty book. */
     OrderBook() = default;
 
+    /** @brief Benchmark-compatible constructor; Phase 1 ignores pool sizing. */
+    explicit OrderBook(std::size_t /*pool_capacity*/) {}
+
     /**
      * @brief Submit a limit order: match against the opposite side, rest remainder on book.
      *
