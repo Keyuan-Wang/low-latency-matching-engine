@@ -23,16 +23,6 @@ add_executable(bench_mkt_sweep_deep
 )
 target_link_libraries(bench_mkt_sweep_deep PRIVATE benchmark_runner_lib)
 
-add_executable(bench_cxl_miss
-	src/legacy/bench_cxl_miss.cpp
-)
-target_link_libraries(bench_cxl_miss PRIVATE benchmark_runner_lib)
-
-add_executable(bench_dup_reject
-	src/legacy/bench_dup_reject.cpp
-)
-target_link_libraries(bench_dup_reject PRIVATE benchmark_runner_lib)
-
 add_executable(bench_cxl_hit
 	src/legacy/bench_cxl_hit.cpp
 )
@@ -73,11 +63,6 @@ add_executable(bench_hft_modify_near
 	src/hft/bench_hft_modify_near.cpp
 )
 target_link_libraries(bench_hft_modify_near PRIVATE benchmark_runner_lib)
-
-add_executable(bench_hft_cxl_miss
-	src/hft/bench_hft_cxl_miss.cpp
-)
-target_link_libraries(bench_hft_cxl_miss PRIVATE benchmark_runner_lib)
 
 add_executable(bench_hft_market_small
 	src/hft/bench_hft_market_small.cpp

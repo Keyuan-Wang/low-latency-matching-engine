@@ -16,3 +16,5 @@ __pycache__/
 .clangd
 .DS_Store
 /TIMELINE.md
+# Build directories
+build-*/

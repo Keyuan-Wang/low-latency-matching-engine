@@ -1,12 +1,14 @@
 /**
  * @file order_book.hpp
- * @brief Central limit order book (Phase 1): declarations for @ref matching::OrderBook and related types.
+ * @brief Central limit order book — gateway-owned validation contract.
+ *
+ * The matching core assumes all incoming order ids are valid. The exchange
+ * gateway is responsible for duplicate-id and cancel-before-insert checks.
  */
 
 #pragma once
 
 #include <cstdint>
-#include <unordered_set>
 #include <map>
 #include <utility>
 
@@ -77,16 +79,16 @@ using AskBook = SideBook<true>;
 using BidBook = SideBook<false>;
 
 /**
- * @brief Phase-1 central limit order book (two-sided, price–time priority at each level).
+ * @brief Central limit order book (two-sided, price–time priority at each level).
  *
  * @details
  * - Bids and asks are stored in separate @ref BidBook / @ref AskBook maps.
- * - Each price maps to a @ref PriceLevel (`std::list`) for FIFO per level.
- * - @ref active_ids_ tracks resting order ids for duplicate detection in O(1) average time.
- * - @ref pending_cancel_ids_ supports cancel-before-insert: unknown cancels are queued
- *   until an insert with the same id is rejected with @ref ErrorCode::PendingCancelExists.
+ * - Each price maps to a @ref PriceLevel (IntrusiveList) for FIFO per level.
+ * - The exchange gateway owns all order-id validation (duplicate, pending-cancel).
+ * - id_to_order_ is retained as the functional cancel/modify lookup mechanism.
  *
- * @note Cancel path scans books (Phase 1); later phases may add O(1) index by id.
+ * @note Duplicate-id and cancel-before-insert validation has been removed.
+ *       The matching core assumes all inputs are valid.
  */
 class OrderBook {
 public:
@@ -96,7 +98,7 @@ public:
     /**
      * @brief Submit a limit order: match against the opposite side, rest remainder on book.
      *
-     * @param order_id   Unique order id (must not duplicate a resting id or pending cancel).
+     * @param order_id   Business/reporting order id.
      * @param side       @ref Side::Buy consumes asks; @ref Side::Sell consumes bids.
      * @param price      Limit price; used for crossing check and for resting level.
      * @param quantity   Desired quantity (> 0).
@@ -105,8 +107,6 @@ public:
      *
      * @retval ErrorCode::Success Resting portion (if any) posted; or fully filled.
      * @retval ErrorCode::InvalidQuantity @p quantity == 0.
-     * @retval ErrorCode::PendingCancelExists @p order_id in @ref pending_cancel_ids_.
-     * @retval ErrorCode::DuplicateOrderId @p order_id already in @ref active_ids_.
      */
     AddResult add_limit_order(std::uint64_t order_id, Side side, std::int64_t price,
                               std::uint64_t quantity, std::uint64_t timestamp);
@@ -128,8 +128,7 @@ public:
 
     /**
      * @brief Atomically replace a resting order: remove any existing order with the same id,
-     *        then add a fresh limit order.  If no order with that id is on the book, behaves
-     *        as a plain add (skips duplicate-id checks since the id isn't active).
+     *        then add a fresh limit order.
      *
      * @param order_id  Target order id (used for remove if present, then for the new insert).
      * @param side      Side for the replacement order.
@@ -144,29 +143,11 @@ public:
     /**
      * @brief Remove a resting order by id from either side.
      *
-     * @param order_id Id to cancel.
+     * @param order_id Id to cancel (assumed valid — gateway-owned).
      * @return @ref ErrorCode::Success if removed from book;
-     *         @ref ErrorCode::UnknownOrderId if not found (id added to pending cancel set).
+     *         @ref ErrorCode::UnknownOrderId if not found.
      */
     ErrorCode cancel_order(std::uint64_t order_id);
-
-    /**
-     * @brief Number of ids waiting for a later insert after an early cancel.
-     * @return Size of @ref pending_cancel_ids_.
-     */
-    [[nodiscard]] std::size_t pending_cancel_count() const noexcept {
-        return pending_cancel_ids_.size();
-    }
-
-    /**
-     * @brief Whether an order id is currently resting on the book.
-     *
-     * @details Read-only helper used by benchmark instrumentation to classify
-     * modify operations into hit/miss buckets without mutating state.
-     */
-    [[nodiscard]] bool contains_order(std::uint64_t order_id) const noexcept {
-        return id_to_order_.contains(order_id);
-    }
 
 private:
     BidBook bids_{};   ///< Bid price levels (best bid at @c begin()).
@@ -174,7 +155,6 @@ private:
 
     OrderPool pool_;
 
-    std::unordered_set<std::uint64_t> pending_cancel_ids_{}; ///< Early cancel ids not yet seen on insert.
     absl::flat_hash_map<std::uint64_t, Order*> id_to_order_{};
 };
 

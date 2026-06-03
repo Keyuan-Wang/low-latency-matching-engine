@@ -489,12 +489,10 @@ private:
             break;
         }
         case PendingOp::kModify: {
-            const bool existed_before = book_->contains_order(op.target_id);
             auto const res = book_->modify_order(op.target_id, op.side, op.price,
                                                  op.qty, op.oid);
             if (res.code == matching::ErrorCode::Success) ++ok;
-            outcome.bucket =
-                existed_before ? OpBucket::kModifyHit : OpBucket::kModifyMiss;
+            outcome.bucket = OpBucket::kModifyHit;
             break;
         }
         case PendingOp::kMarket: {

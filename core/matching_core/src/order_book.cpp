@@ -46,7 +46,6 @@ ErrorCode OrderBook::cancel_order(std::uint64_t order_id) {
         return ErrorCode::Success;
     }
 
-    pending_cancel_ids_.insert(order_id);
     return ErrorCode::UnknownOrderId;
 }
 
@@ -55,7 +54,7 @@ ErrorCode OrderBook::cancel_order(std::uint64_t order_id) {
  */
 AddResult OrderBook::modify_order(std::uint64_t order_id, Side side, std::int64_t price,
                                   std::uint64_t quantity, std::uint64_t timestamp) {
-    // Remove existing order with this id if present (no side effects on pending_cancel_ids_).
+    // Remove existing order with this id if present.
     auto it = id_to_order_.find(order_id);
     if (it != id_to_order_.end()) {
         Order* o = it->second;
@@ -64,11 +63,8 @@ AddResult OrderBook::modify_order(std::uint64_t order_id, Side side, std::int64_
         id_to_order_.erase(order_id);
     }
 
-    // A prior cancel that landed in pending_cancel_ids_ is overridden by modify.
-    pending_cancel_ids_.erase(order_id);
-
-    // Delegate to add_limit_order — both duplicate and pending-cancel checks
-    // will pass since we just cleaned up state for this id.
+    // Delegate to add_limit_order — duplicate-id and pending-cancel checks
+    // are now the gateway's responsibility.
     return add_limit_order(order_id, side, price, quantity, timestamp);
 }
 
@@ -83,18 +79,6 @@ AddResult OrderBook::add_limit_order(std::uint64_t order_id, Side side, std::int
 
     if (quantity == 0) {
         out.code = ErrorCode::InvalidQuantity;
-        return out;
-    }
-
-    if (pending_cancel_ids_.contains(order_id)) {
-        out.code = ErrorCode::PendingCancelExists;
-        out.remaining_quantity = quantity;
-        return out;
-    }
-
-    if (id_to_order_.contains(order_id)) {
-        out.code = ErrorCode::DuplicateOrderId;
-        out.remaining_quantity = quantity;
         return out;
     }
 
@@ -129,7 +113,7 @@ AddResult OrderBook::add_limit_order(std::uint64_t order_id, Side side, std::int
                     pool_.release(maker_ptr);
                 }
             }
-            
+
             if (price_level.empty())
                 opposite_book.erase_best();
         }
@@ -184,18 +168,6 @@ AddResult OrderBook::add_market_order(std::uint64_t order_id, Side side, std::ui
 
     if (quantity == 0) {
         out.code = ErrorCode::InvalidQuantity;
-        return out;
-    }
-
-    if (pending_cancel_ids_.contains(order_id)) {
-        out.code = ErrorCode::PendingCancelExists;
-        out.remaining_quantity = quantity;
-        return out;
-    }
-
-    if (id_to_order_.contains(order_id)) {
-        out.code = ErrorCode::DuplicateOrderId;
-        out.remaining_quantity = quantity;
         return out;
     }
 
