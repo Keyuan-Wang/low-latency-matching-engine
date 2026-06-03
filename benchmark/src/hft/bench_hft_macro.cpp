@@ -20,13 +20,12 @@
 #include "benchmark_runner.hpp"
 #include "bench_common.hpp"
 
-#include "absl/container/flat_hash_map.h"
-
 #include <algorithm>
 #include <array>
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
+#include <unordered_map>
 #include <fstream>
 #include <iostream>
 #include <iterator>
@@ -271,8 +270,8 @@ private:
 
     // Resting-order tracking (used for cancel-target selection during the
     // pre-generation step in Setup, NOT during RunOp).
-    absl::flat_hash_map<std::uint64_t, RestingMeta> resting_orders_;
-    absl::flat_hash_map<std::uint64_t, HandleMeta> book_handles_;
+    std::unordered_map<std::uint64_t, RestingMeta> resting_orders_;
+    std::unordered_map<std::uint64_t, HandleMeta> book_handles_;
     std::vector<std::uint64_t> resting_ids_;
     std::map<std::int64_t, std::uint64_t, std::less<>> ask_level_counts_;
     std::map<std::int64_t, std::uint64_t, std::greater<>> bid_level_counts_;
@@ -989,7 +988,7 @@ private:
     }
 
     void apply_trade_fills(const std::vector<matching::Trade>& trades,
-                           absl::flat_hash_map<std::uint64_t, HandleMeta>* handles = nullptr) {
+                           std::unordered_map<std::uint64_t, HandleMeta>* handles = nullptr) {
         for (const auto& trade : trades) {
             auto it = resting_orders_.find(trade.maker_order_id);
             if (it == resting_orders_.end()) continue;
@@ -1019,7 +1018,7 @@ private:
     std::unique_ptr<matching::OrderBook>
     build_book_from_tracking(
         std::size_t pool_capacity,
-        absl::flat_hash_map<std::uint64_t, HandleMeta>& handles) {
+        std::unordered_map<std::uint64_t, HandleMeta>& handles) {
         auto book = std::make_unique<matching::OrderBook>(pool_capacity);
         handles.clear();
         std::vector<std::uint64_t> ids;

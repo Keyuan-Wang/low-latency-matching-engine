@@ -157,15 +157,6 @@ if [[ "$INSTALL_DEPS" == "1" ]]; then
     git ca-certificates build-essential cmake python3 python3-venv python3-pip
 fi
 
-# Hide system absl so all branches fall through to FetchContent.
-# Debian's libabsl-dev uses a custom absl::debian9 namespace that causes
-# linker errors for new template instantiations (e.g. bench_hft_macro's
-# flat_hash_map<int64_t, uint64_t>).
-if [[ -d "/usr/lib/x86_64-linux-gnu/cmake/absl" ]]; then
-  mv /usr/lib/x86_64-linux-gnu/cmake/absl /usr/lib/x86_64-linux-gnu/cmake/absl.bak
-  echo "  hid system absl -> absl.bak"
-fi
-
 # ---- 2. Clone / fetch repo ----
 echo "--- Repository ---"
 if [[ ! -d "$REMOTE_REPO_DIR/.git" ]]; then

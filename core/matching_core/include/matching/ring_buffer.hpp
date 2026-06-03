@@ -2,7 +2,6 @@
 
 #include "price_level.hpp"
 #include "types.hpp"
-#include "absl/container/flat_hash_map.h"
 
 #include <cstddef>
 #include <limits>
@@ -12,6 +11,21 @@ namespace matching {
 
 template <bool IsAsk>
 class RingBuffer {
+public:
+    PriceLevel* find(std::int64_t price);
+
+    void insert(std::int64_t price, Order* order);
+
+    void erase(std::int64_t price);
+
+    std::int64_t best_price() { return best_price_; }
+    bool empty() const { return best_price_ == Invalid; }
+
+    PriceLevel* best_price_level() {
+        return (best_price_ == Invalid) ? nullptr : &ring_buffer_[best_price_idx_].level;
+    }
+
+
 private:
     static constexpr int RingSize = 16;     // size of ring buffer
 
@@ -20,12 +34,11 @@ private:
 
     struct Slot {
         std::int64_t price = Invalid;
-        PriceLevel level;  // pointer to intrusive list with price
+        PriceLevel* level;  // pointer to PriceLevel object
     };
 
     std::array<Slot, RingSize> ring_buffer_;    // light-weight order book on hot path
 
-    absl::flat_hash_map<std::int64_t, PriceLevel> cold_map_;  // heavy-weight order book on cold path
 
     std::int64_t best_price_ = Invalid;
     std::size_t best_price_idx_;
@@ -50,20 +63,6 @@ private:
     auto find_cold(std::int64_t price);
 
     void evict_to_cold(std::size_t idx);
-
-public:
-    PriceLevel* find(std::int64_t price);
-
-    void insert(std::int64_t price, Order* order);
-
-    void erase(std::int64_t price);
-
-    std::int64_t best_price() { return best_price_; }
-    bool empty() const { return best_price_ == Invalid; }
-
-    PriceLevel* best_price_level() {
-        return (best_price_ == Invalid) ? nullptr : &ring_buffer_[best_price_idx_].level;
-    }
 };
 
 template <bool IsAsk>
