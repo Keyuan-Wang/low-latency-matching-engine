@@ -7,11 +7,8 @@
 
 #include <cstdint>
 #include <map>
-#include <memory_resource>
 #include <utility>
-#include <array>
 #include <cstddef>  // std::byte, std::size_t
-#include <vector>
 
 
 #include "types.hpp"
@@ -47,19 +44,7 @@ struct PriceCompare<false> {
 template <bool IsAsk>
 class SideBook {
 private:
-    static constexpr std::size_t kLevelPoolBytes = 1 << 20; // pre-allocate 1MiB memory space for the map node pool
-
-    std::array<std::byte, kLevelPoolBytes> level_storage_{};
-
-    std::pmr::monotonic_buffer_resource upstream_{
-        level_storage_.data(),
-        level_storage_.size(),
-        std::pmr::null_memory_resource()
-    };
-
-    std::pmr::unsynchronized_pool_resource level_node_pool_{&upstream_};
-
-    std::pmr::map<std::int64_t, PriceLevel, PriceCompare<IsAsk>> levels_{&level_node_pool_};
+    std::pmr::map<std::int64_t, PriceLevel, PriceCompare<IsAsk>> levels_{};
 public:
     [[nodiscard]] bool empty() const noexcept {
         return levels_.empty();
