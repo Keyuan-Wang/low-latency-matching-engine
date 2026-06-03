@@ -15,4 +15,5 @@ __pycache__/
 *.so
 .clangd
 .DS_Store
-/TIMELINE.md
+/TIMELINE.mdbuild-debug/
+build-*/
