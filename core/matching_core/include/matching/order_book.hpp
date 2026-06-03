@@ -38,6 +38,7 @@ using BidBook = std::map<std::int64_t, PriceLevel, std::greater<>>;
  * - Each price maps to a @ref PriceLevel (`std::list`) for FIFO per level.
  *
  * @note Cancel path scans books (Phase 1); later phases may add O(1) index by id.
+ * @note The matching core assumes the gateway has validated business order ids.
  */
 class OrderBook {
 public:
@@ -47,7 +48,7 @@ public:
     /**
      * @brief Submit a limit order: match against the opposite side, rest remainder on book.
      *
-     * @param order_id   Unique order id (must not duplicate a resting id or pending cancel).
+     * @param order_id   Business/reporting order id; not validated for duplicates in-core.
      * @param side       @ref Side::Buy consumes asks; @ref Side::Sell consumes bids.
      * @param price      Limit price; used for crossing check and for resting level.
      * @param quantity   Desired quantity (> 0).
@@ -56,7 +57,6 @@ public:
      *
      * @retval ErrorCode::Success Resting portion (if any) posted; or fully filled.
      * @retval ErrorCode::InvalidQuantity @p quantity == 0.
-     * @retval ErrorCode::DuplicateOrderId @p order_id already in @ref active_ids_.
      */
     AddResult add_limit_order(std::uint64_t order_id, Side side, std::int64_t price,
                               std::uint64_t quantity, std::uint64_t timestamp);
@@ -79,7 +79,7 @@ public:
     /**
      * @brief Atomically replace a resting order: remove any existing order with the same id,
      *        then add a fresh limit order.  If no order with that id is on the book, behaves
-     *        as a plain add (skips duplicate-id checks since the id isn't active).
+     *        as a plain add.
      *
      * @param order_id  Target order id (used for remove if present, then for the new insert).
      * @param side      Side for the replacement order.
@@ -96,14 +96,10 @@ public:
      *
      * @param order_id Id to cancel.
      * @return @ref ErrorCode::Success if removed from book;
-     *         @ref ErrorCode::UnknownOrderId if not found (id added to pending cancel set).
+     *         @ref ErrorCode::UnknownOrderId if not found.
      */
     ErrorCode cancel_order(std::uint64_t order_id);
 
-    /**
-     * @brief Number of ids waiting for a later insert after an early cancel.
-     * @return Size of @ref pending_cancel_ids_.
-     */
 
 private:
     BidBook bids_{};   ///< Bid price levels (best bid at @c begin()).
