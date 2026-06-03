@@ -19,6 +19,7 @@ if(NOT absl_FOUND)
   )
   set(ABSL_PROPAGATE_CXX_STD ON)
   FetchContent_MakeAvailable(abseil)
+endif()
 target_link_libraries(matching_core PUBLIC absl::flat_hash_map)
 
 if(LLMES_BUILD_TESTS)
