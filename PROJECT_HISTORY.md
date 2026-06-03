@@ -578,3 +578,32 @@ As of the current repository state:
 - ChunkPool benchmark artifacts are recorded but the design is not the active baseline
 - the production profile shows the cancel-index hash map (~50% of macro cycles) and the `std::map` level container (~24% of cycles, top branch-miss source) as the two cost centers; the planned response is to replace `id_to_order_` with a generational slotmap on the order pool, then add a pooled allocator to the `std::map` price levels
 - the latest profiling analysis is recorded in `report/phase5_macro_profiling_plan.md` (and the earlier `report/phase4_hft_macro_optimization_priority.md`)
+- Phase 6 (`OrderHandle`) is implemented on `master`; benchmarks migrated per `report/phase6_benchmark_handle_migration.md`
+- unified Phase 1–6 narrative + Jun 2026 devalidated `hft_macro` table: `report/phase_evolution_phase1_to_phase6.md`, CSV `server_results/hft_macro_cross_phase_summary_20260603.csv`
+
+## Jun 2026 Unified `hft_macro` Campaign (Devalidated + Phase 6)
+
+Cloud runner: `benchmark/scripts/run_remote_compare.sh` on Hetzner CCX23.
+
+| Artifact | Contents |
+|---|---|
+| `server_results/devalidated_hft_macro_20260603_150410/` | 8 branches: p1, p2a–e, p4a, p4-finale (all `*-devalidated`) |
+| `server_results/compare_master_vs_phase5_20260603_143852/` | `master` vs `phase5-finale-devalidated` (skipped re-run) |
+| `server_results/hft_macro_cross_phase_summary_20260603.csv` | Merged headline latency/PMC row per phase |
+
+Headline `hft_macro` at `orders=100000`, `levels=100`, 10 trials (devalidated unless noted):
+
+| Phase tag | avg ns/op | ops/s |
+|---|---:|---:|
+| p1-deval | 2170 | 0.47M |
+| p2a-deval | 2137 | 0.47M |
+| p2b-deval | 48.3 | 20.7M |
+| p2c-deval | 70.6 | 14.2M |
+| p2d-deval | 71.8 | 13.9M |
+| p2e-deval | 39.8 | 25.2M |
+| p4a-deval | 39.3 | 25.5M |
+| p4fin-deval | 40.2 | 24.9M |
+| phase5-deval | 34.4 | 29.1M |
+| master (Phase 6) | 29.3 | 34.1M |
+
+Phase 1–2a rows are O(N)-cancel bound and not comparable to 2b+ for ranking. Phase 6 uses handle-aware benchmark scope (handles resolved in `Setup()`).
