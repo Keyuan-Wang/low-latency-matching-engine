@@ -15,6 +15,8 @@ The notes below are based on:
 - `benchmark/results/campaign_20260601_1319/`
 - `benchmark/results/hft_macro_perf_record_cloud_20260601/`
 - `server_results/macro_op_profile_cloud_t1/`
+- `server_results/hft_macro_perf_record_master_20260603_153306/`
+- `server_results/compare_master_vs_phase6a_20260603_173405/`
 
 ## Phase 1: Correctness-First Baseline
 
@@ -640,6 +642,7 @@ As of the current repository state:
 - window-isolated production `perf record` validated on post-handle `master` — see `server_results/hft_macro_perf_record_master_20260603_153306/`
 - ChunkPool benchmark artifacts are recorded but the design is not the active baseline
 - **next macro cost center:** `std::map` price-level `get_or_create` (~28% `RunOp` cycles in Phase 6a perf record), not the cancel hash map (removed)
+- PMR price-level node pooling was tested after Phase 6a; it reduced cache misses but increased instruction count and regressed macro latency, so it is not the active direction
 - unified Phase 1–6 narrative: `report/phase_evolution_phase1_to_phase6.md`, CSV `server_results/hft_macro_cross_phase_summary_20260603.csv`
 
 ## Jun 2026 Unified `hft_macro` Campaign (Devalidated + Phase 6)
@@ -668,3 +671,65 @@ Headline `hft_macro` at `orders=100000`, `levels=100`, 10 trials (devalidated un
 | master (Phase 6) | 29.3 | 34.1M |
 
 Phase 1–2a rows are O(N)-cancel bound and not comparable to 2b+ for ranking. Phase 6 uses handle-aware benchmark scope (handles resolved in `Setup()`).
+
+## Phase 6b Candidate: PMR Price-Level Node Pool (Rejected)
+
+### Design Hypothesis
+
+After the Phase 6a handle migration, window-isolated `perf record` showed that the dominant remaining macro cost moved to `add_limit_order`, especially `std::map` price-level `get_or_create`. A natural follow-up hypothesis was that frequent `std::map` node allocation and free on price-level creation/destruction might still be hurting the hot path.
+
+The tested implementation kept the `std::map` design and pointer stability, but changed the allocator:
+
+- `std::map<price, PriceLevel>` became `std::pmr::map<price, PriceLevel>`
+- each `SideBook` owned a fixed local buffer
+- the map used `std::pmr::unsynchronized_pool_resource` backed by a `std::pmr::monotonic_buffer_resource`
+- the intent was to avoid hot-path `new` / `delete` for map nodes without changing matching semantics
+
+### Benchmark Result
+
+The cloud comparison is stored under:
+
+```text
+server_results/compare_master_vs_phase6a_20260603_173405/
+```
+
+Configuration: `hft_macro`, `orders=100000`, `levels=100`, `batch_size=100000`, 10 trials, latency + PMC.
+
+| Version | Meaning | avg ns/op | ops/s | instr/op | cache miss/op |
+|---|---|---:|---:|---:|---:|
+| `phase6a` @ `d778e4f` | no PMR map experiment | 29.21 | 34.24M | 183.6 | 0.042 |
+| `master` @ `7a25934` | PMR node pool for `std::map` | 31.51 | 31.80M | 218.1 | 0.033 |
+
+PMR did improve the cache-miss metric:
+
+- cache misses/op fell from `0.042` to `0.033` (about 21% lower)
+- CPI also fell (`0.579` to `0.519`)
+
+But the total hot-path work increased more:
+
+- instructions/op rose from `183.6` to `218.1` (about 19% higher)
+- branches/op rose from `41.36` to `47.87` (about 16% higher)
+- average latency regressed from `29.21ns` to `31.51ns` (about 8% slower)
+
+### Interpretation
+
+This result rejects the PMR node-pool change as a Phase 6b direction. It is directionally useful, but not a win:
+
+- PMR can reduce cache misses for the map-node allocator path.
+- The extra allocator abstraction, pool-resource metadata, and control flow increase instruction count and branch count.
+- The macro workload is already warm by the time the measured `RunOp` window begins.
+
+The last point is important. In the current `hft_macro` setup, the book is seeded, then driven through a long untimed warmup (`500000` generated events in the current code), then rebuilt before the measured batch. By that point, most active price levels are likely already represented in the book. That means true price-level `new` / `delete` frequency during the measured window may be much lower than the raw `get_or_create` profile initially suggests.
+
+This hidden factor is plausible but not worth spending a separate validation campaign on right now. Even if verified, it would only explain why allocator pooling has limited upside. The higher-potential problem is still the ordered-map operation itself: price lookup, branchy tree traversal, `try_emplace`, and RB-tree maintenance.
+
+### Optimization Direction
+
+The Phase 6b+ direction is therefore:
+
+- prioritize reducing instruction count and branchy ordered-map work
+- attack `get_or_create` by reducing binary/tree search and `std::map` operations
+- explore a ring-buffer or indexed hot price window so common price-level access becomes index arithmetic
+- keep a cold ordered path only if the design still needs arbitrary out-of-window prices
+
+Unless new evidence shows a real production p99 memory-stall problem, future optimization work should not target cache misses as the primary objective. Cache-locality work is only justified as a side effect of a structure that also reduces instructions, not as the main design goal.
