@@ -38,14 +38,12 @@ ErrorCode OrderBook::cancel_order(std::uint64_t order_id) {
         // Remove from its price-level intrusive list.
         o->parent_level->erase(*o);
         pool_.release(o);                   // Return memory to the object pool.
-        active_ids_.erase(order_id);
         id_to_order_.erase(order_id);       // Remove from hash table.
         return ErrorCode::Success;
     }
 
     // Order not found: record as pending cancel so a subsequent insert
     // with the same id is rejected (matching real-world exchange behaviour).
-    pending_cancel_ids_.insert(order_id);
     return ErrorCode::UnknownOrderId;
 }
 
@@ -59,12 +57,10 @@ AddResult OrderBook::modify_order(std::uint64_t order_id, Side side, std::int64_
 
         o->parent_level->erase(*o);
         pool_.release(o);
-        active_ids_.erase(order_id);
         id_to_order_.erase(order_id);
     }
 
-    // A pending cancel for this id is also cleared — modify overrides it.
-    pending_cancel_ids_.erase(order_id);
+
 
     // Now delegate to add_limit_order with a clean state for this id.
     return add_limit_order(order_id, side, price, quantity, timestamp);
@@ -80,17 +76,7 @@ AddResult OrderBook::add_limit_order(std::uint64_t order_id, Side side, std::int
         return out;
     }
 
-    if (pending_cancel_ids_.contains(order_id)) {
-        out.code = ErrorCode::PendingCancelExists;
-        out.remaining_quantity = quantity;
-        return out;
-    }
 
-    if (active_ids_.contains(order_id)) {
-        out.code = ErrorCode::DuplicateOrderId;
-        out.remaining_quantity = quantity;
-        return out;
-    }
 
     std::uint64_t remaining = quantity;
 
@@ -120,7 +106,6 @@ AddResult OrderBook::add_limit_order(std::uint64_t order_id, Side side, std::int
 
                 if (maker.quantity == 0) {
                     // Fully consumed: remove maker from book.
-                    active_ids_.erase(maker.id);
                     id_to_order_.erase(maker.id);
 
                     Order* maker_ptr = &maker;
@@ -162,7 +147,6 @@ AddResult OrderBook::add_limit_order(std::uint64_t order_id, Side side, std::int
         level.push_back(*node);
         node->parent_level = &level;
     }
-    active_ids_.insert(order_id);
     id_to_order_.insert(order_id, node);
 
     out.code = ErrorCode::Success;
@@ -181,17 +165,7 @@ AddResult OrderBook::add_market_order(std::uint64_t order_id, Side side, std::ui
         return out;
     }
 
-    if (pending_cancel_ids_.contains(order_id)) {
-        out.code = ErrorCode::PendingCancelExists;
-        out.remaining_quantity = quantity;
-        return out;
-    }
 
-    if (active_ids_.contains(order_id)) {
-        out.code = ErrorCode::DuplicateOrderId;
-        out.remaining_quantity = quantity;
-        return out;
-    }
 
     std::uint64_t remaining = quantity;
 
@@ -215,7 +189,6 @@ AddResult OrderBook::add_market_order(std::uint64_t order_id, Side side, std::ui
                 out.filled_quantity += fill;
 
                 if (maker.quantity == 0) {
-                    active_ids_.erase(maker.id);
                     id_to_order_.erase(maker.id);
 
                     Order* maker_ptr = &maker;
