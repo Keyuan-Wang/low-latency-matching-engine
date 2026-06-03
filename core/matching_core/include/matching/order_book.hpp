@@ -44,7 +44,7 @@ struct PriceCompare<false> {
 template <bool IsAsk>
 class SideBook {
 private:
-    std::pmr::map<std::int64_t, PriceLevel, PriceCompare<IsAsk>> levels_{};
+    std::map<std::int64_t, PriceLevel, PriceCompare<IsAsk>> levels_{};
 public:
     [[nodiscard]] bool empty() const noexcept {
         return levels_.empty();
