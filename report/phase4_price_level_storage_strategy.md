@@ -6,7 +6,7 @@ Phase 4 changes the matching engine's **price-level storage**. The current
 high-level goal is to move beyond the baseline:
 
 ```cpp
-std::map<price, IntrusiveList>
+std::map<price, PriceLevel>
 ```
 
 without losing correctness under the Phase 3 HFT benchmark suite.
@@ -15,7 +15,7 @@ The main design constraint is that `hft_macro` does not have a fixed price
 range. Micro benchmarks use predictable prices around `1000`, but the macro
 benchmark generates prices relative to a drifting best ask and uses modify
 events that can move resting orders by `+/- 1..3` ticks. Therefore a pure
-fixed-size `std::vector<OrderLevel>` is not a correct final design unless the
+fixed-size `std::vector<PriceLevel>` is not a correct final design unless the
 benchmark itself clamps prices, which would change the workload.
 
 This phase should proceed as an incremental performance-engineering campaign:
@@ -494,7 +494,7 @@ only a single partially-filled chunk.
 ### Initial Benchmark Campaign (Bug-Affected)
 
 A 10-trial, 8-micro + 1-macro campaign was run comparing `master` (with
-ChunkPool at kChunkSize=16/32/64/128/256) against `phase4a` (the `IntrusiveList`
+ChunkPool at kChunkSize=16/32/64/128/256) against `phase4a` (the `PriceLevel`
 wrapped behind `SideBook`, no ChunkPool).
 
 Artifacts: `benchmark/results/campaign_20260601_1319/`
@@ -639,7 +639,7 @@ correct Phase 4 starting point:
 | Order storage | `OrderPool` — single contiguous allocation, O(1) acquire/release |
 | Per-level queue | Intrusive doubly-linked list (no separate node allocation) |
 | Cancel/modify index | `absl::flat_hash_map<uint64_t, Order*>` |
-| Price-level storage | `std::map<int64_t, IntrusiveList>` (wrapped in `SideBook`) |
+| Price-level storage | `std::map<int64_t, PriceLevel>` (wrapped in `SideBook`) |
 | `hft_macro` ops/s | **28.1M** (1 trial, orders=100000, levels=100) |
 
 The main structural simplification in this version is that `OrderPool` uses a

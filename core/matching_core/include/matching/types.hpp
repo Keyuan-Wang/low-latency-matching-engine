@@ -5,7 +5,7 @@
 
 namespace matching {
 
-class IntrusiveList;  // forward decl — full definition in intrusive_list.hpp
+class PriceLevel;  // forward decl — full definition in price_level.hpp
 
 using OrderHandle = std::uint32_t;  // Direct index into the order pool.
 inline constexpr OrderHandle kInvalidHandle = UINT32_MAX;
@@ -60,7 +60,7 @@ struct Order {
     Order* next = nullptr;
 
     // --- parent level links ---
-    IntrusiveList* parent_level = nullptr;
+    PriceLevel* parent_level = nullptr;
 };
 
 }

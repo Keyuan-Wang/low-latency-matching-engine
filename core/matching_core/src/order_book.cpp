@@ -7,7 +7,7 @@
 #include <cassert>
 
 #include "matching/order_book.hpp"
-#include "matching/intrusive_list.hpp"
+#include "matching/price_level.hpp"
 #include "matching/order_pool.hpp"
 #include "matching/types.hpp"
 

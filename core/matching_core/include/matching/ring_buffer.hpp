@@ -1,6 +1,6 @@
 #pragma once
 
-#include "intrusive_list.hpp"
+#include "price_level.hpp"
 #include "types.hpp"
 #include "absl/container/flat_hash_map.h"
 
@@ -20,12 +20,12 @@ private:
 
     struct Slot {
         std::int64_t price = Invalid;
-        IntrusiveList level;  // pointer to intrusive list with price
+        PriceLevel level;  // pointer to intrusive list with price
     };
 
     std::array<Slot, RingSize> ring_buffer_;    // light-weight order book on hot path
 
-    absl::flat_hash_map<std::int64_t, IntrusiveList> cold_map_;  // heavy-weight order book on cold path
+    absl::flat_hash_map<std::int64_t, PriceLevel> cold_map_;  // heavy-weight order book on cold path
 
     std::int64_t best_price_ = Invalid;
     std::size_t best_price_idx_;
@@ -52,7 +52,7 @@ private:
     void evict_to_cold(std::size_t idx);
 
 public:
-    IntrusiveList* find(std::int64_t price);
+    PriceLevel* find(std::int64_t price);
 
     void insert(std::int64_t price, Order* order);
 
@@ -61,13 +61,13 @@ public:
     std::int64_t best_price() { return best_price_; }
     bool empty() const { return best_price_ == Invalid; }
 
-    IntrusiveList* best_price_level() {
+    PriceLevel* best_price_level() {
         return (best_price_ == Invalid) ? nullptr : &ring_buffer_[best_price_idx_].level;
     }
 };
 
 template <bool IsAsk>
-IntrusiveList* RingBuffer<IsAsk>::find(std::int64_t price) {
+PriceLevel* RingBuffer<IsAsk>::find(std::int64_t price) {
     // the book has not been initialized yet
     if (best_price_ == Invalid)     return nullptr;
 
@@ -91,7 +91,7 @@ IntrusiveList* RingBuffer<IsAsk>::find(std::int64_t price) {
     if (it == cold_map_.end())  
         return nullptr;     // current price does not exist
     
-    // move IntrusiveList from cold map to hot array
+    // move PriceLevel from cold map to hot array
     slot.level = std::move(it->second);
     cold_map_.erase(it);
     slot.price = price;

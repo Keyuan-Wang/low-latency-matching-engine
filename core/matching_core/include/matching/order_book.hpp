@@ -11,13 +11,10 @@
 
 
 #include "types.hpp"
-#include "intrusive_list.hpp"
+#include "price_level.hpp"
 #include "order_pool.hpp"
 
 namespace matching {
-
-
-using PriceLevel = IntrusiveList;
 
 template <bool IsAsk>
 struct PriceCompare;

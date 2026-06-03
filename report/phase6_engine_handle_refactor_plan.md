@@ -147,7 +147,7 @@ struct Order {
     std::uint64_t timestamp;
     Order* prev;
     Order* next;
-    IntrusiveList* parent_level;
+    PriceLevel* parent_level;
 };
 ```
 

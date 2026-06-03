@@ -4,17 +4,17 @@
 
 namespace matching {
 
-class IntrusiveList {
+class PriceLevel {
 private:
     Order* head_ = nullptr;
     Order* tail_ = nullptr;
     std::size_t size_ = 0;
 
 public:
-    IntrusiveList() = default;
+    PriceLevel() = default;
 
     // Move constructor
-    IntrusiveList(IntrusiveList&& other) noexcept
+    PriceLevel(PriceLevel&& other) noexcept
         : head_(other.head_),
           tail_(other.tail_),
           size_(other.size_)
@@ -25,7 +25,7 @@ public:
     }
 
     // Move operator
-    IntrusiveList& operator=(IntrusiveList&& other) noexcept {
+    PriceLevel& operator=(PriceLevel&& other) noexcept {
         if (this != &other) {
             head_ = other.head_;
             tail_ = other.tail_;
@@ -40,8 +40,8 @@ public:
     }
 
     // Prevent copy constructor (two pointers pointing to the same order pool)
-    IntrusiveList(const IntrusiveList&) = delete;
-    IntrusiveList& operator=(const IntrusiveList&) = delete;
+    PriceLevel(const PriceLevel&) = delete;
+    PriceLevel& operator=(const PriceLevel&) = delete;
 
     void push_back(Order& o) {
         o.prev = tail_;

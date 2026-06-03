@@ -11,11 +11,11 @@
 
 | | Phase1 (v1) | Phase2a (v2a) | Phase2b (v2b) |
 |---|---|---|---|
-| Price level container | `std::list<Order>` | `IntrusiveList` (pool-based) | `IntrusiveList` (pool-based) |
+| Price level container | `std::list<Order>` | `PriceLevel` (pool-based) | `PriceLevel` (pool-based) |
 | Order storage | Heap-allocated per order | Pre-allocated `std::vector<Order>` pool | Pre-allocated `std::vector<Order>` pool |
 | Cancel lookup | O(N) book scan | O(N) book scan | O(1) `id_to_order_` hash index |
 | Modify implementation | cancel + add (O(N)) | cancel + add (O(N)) | cancel + add (O(1) cancel) |
-| per-Order back-pointer | None | None | `IntrusiveList* parent_level` |
+| per-Order back-pointer | None | None | `PriceLevel* parent_level` |
 
 ---
 
@@ -70,7 +70,7 @@ These operations do not scan the book or match against resting orders. The book 
 
 ## What Changed
 
-Phase2b adds an O(1) ID-to-position index (`std::unordered_map<uint64_t, Order*>`) and a `IntrusiveList* parent_level` back-pointer on each `Order`. This allows `cancel_order()` to find and remove an order in O(1) instead of scanning the entire book.
+Phase2b adds an O(1) ID-to-position index (`std::unordered_map<uint64_t, Order*>`) and a `PriceLevel* parent_level` back-pointer on each `Order`. This allows `cancel_order()` to find and remove an order in O(1) instead of scanning the entire book.
 
 The trade-off: every order insertion and maker consumption now performs two additional hash-map writes (`emplace`/`erase`), which adds overhead to the matching hot path.
 
@@ -140,7 +140,7 @@ Phase2b ████████████████████████
 With cancel (35%) and modify (30%) together accounting for 65% of all operations, the benchmark heavily penalizes O(N) cancel implementations.
 
 - **Phase1**: `std::list` + O(N) scan. Every cancel traverses up to 200K orders. Every modify does the same (cancel + add). This dominates the runtime.
-- **Phase2a**: IntrusiveList + pool improves cache behavior but cancel/modify still traverse O(N). The 36% improvement over v1 comes entirely from better memory locality.
+- **Phase2a**: PriceLevel + pool improves cache behavior but cancel/modify still traverse O(N). The 36% improvement over v1 comes entirely from better memory locality.
 - **Phase2b**: O(1) cancel index reduces cancel from O(N) traversal to a hash lookup + linked-list erase. Modify inherits the same speedup since it calls cancel internally.
 
 ### Why Phase2b Outperforms by 894×

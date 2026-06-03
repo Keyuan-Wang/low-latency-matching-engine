@@ -9,7 +9,7 @@ A C++20 order-matching engine evolved incrementally from a correctness-first bas
 | Area | Status |
 |------|--------|
 | Matching core | Done |
-| Data structure | `std::map<price, IntrusiveList>` + `absl::flat_hash_map<id, Order*>` (phase2e) |
+| Data structure | `std::map<price, PriceLevel>` + `absl::flat_hash_map<id, Order*>` (phase2e) |
 | Order types | Limit / Market / Cancel / Modify |
 | Benchmark suite | 6 legacy + 8 HFT scenarios |
 | Hash table engineering | phase2b (`std::unordered_map`) → 2c (open-addressing) → 2d (Robin Hood) → **2e (`absl::flat_hash_map`)** |
@@ -124,7 +124,7 @@ The benchmark suite uses the **Strategy** pattern: each scenario implements `IBe
 
 ### Phase 1 → Phase 2a (Pool Allocator)
 
-Pool-based `IntrusiveList` replaces `std::list`: 22–38% fewer instructions per op. Cancel-heavy scenarios see 2× throughput, memory latency drops dramatically (CPI −59%, cache misses −87%).
+Pool-based `PriceLevel` replaces `std::list`: 22–38% fewer instructions per op. Cancel-heavy scenarios see 2× throughput, memory latency drops dramatically (CPI −59%, cache misses −87%).
 
 ### Phase 2a → Phase 2b (O(1) Cancel Index)
 
@@ -150,7 +150,7 @@ llmes/
 ├── core/matching_core/
 │   ├── include/matching/
 │   │   ├── order_book.hpp          # OrderBook class
-│   │   ├── intrusive_list.hpp      # Intrusive doubly-linked list
+│   │   ├── price_level.hpp         # Intrusive doubly-linked list per price
 │   │   ├── order_pool.hpp          # Pre-allocated order pool
 │   │   └── types.hpp               # Order, Trade, AddResult, ErrorCode
 │   ├── src/

@@ -58,7 +58,7 @@ The main goal was to remove per-order heap allocation and improve traversal loca
 The storage model became:
 
 - preallocated `std::vector<Order>` order pool
-- `IntrusiveList` per price level
+- `PriceLevel` per price level
 - still O(N) cancel lookup by scanning
 
 ### Benchmark Result
