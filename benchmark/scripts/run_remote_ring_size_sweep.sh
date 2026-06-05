@@ -58,9 +58,9 @@ echo ""
 
 SSH_OPTS=(-i "$SSH_KEY" -p "$SSH_PORT" -o StrictHostKeyChecking=accept-new)
 
-STAMP="$(date +%Y%m%d_%H%M%S)"
 mkdir -p "$LOCAL_OUT_DIR"
-LOCAL_TARBALL="$LOCAL_OUT_DIR/bench_ring_size_${STAMP}.tgz"
+LOCAL_OUT_DIR="$(cd "$LOCAL_OUT_DIR" && pwd)"
+LOCAL_TARBALL="$LOCAL_OUT_DIR/bench_ring_size.tgz"
 
 ssh "${SSH_OPTS[@]}" "${SSH_USER}@${SERVER_IP}" \
   "SSH_USER='$SSH_USER' SERVER_IP='$SERVER_IP' REPO_URL='$REPO_URL' BRANCH='$BRANCH' \

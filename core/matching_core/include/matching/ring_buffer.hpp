@@ -175,8 +175,8 @@ public:
      * @return Offset from @c anchor_, or @c -1 if nothing is live.
      *
      * Rotates @c live_mask_ so bit @c anchor_ becomes bit 0, then uses
-     * @c countr_zero. Rotation is masked to @ref kValid — a full 64-bit
-     * @c rotr would leave stray bits above @c RingSize and corrupt the result.
+     * @c countr_zero. Because @c MaskType is exactly @c RingSize bits wide,
+     * @c std::rotr performs a natural N-bit rotation with no masking needed.
      */
     int next_live_offset() const noexcept {
         const std::uint64_t rotated = std::rotr(live_mask_, static_cast<int>(anchor_));

@@ -34,11 +34,13 @@ struct Slot {
 
 int64_t   best_price_;     // cached best price
 size_t    anchor_;         // physical slot index of the best price
-uint64_t  live_mask_;      // bit i set iff slots_[i] is occupied
+MaskType  live_mask_;      // bit i set iff slots_[i] is occupied
 array<Slot, 16> slots_;
 ```
 
-16 slots × 24 bytes = 384 bytes, plus anchor / best_price / live_mask totals roughly 408 bytes — fits entirely within L1 cache.
+`MaskType` is selected at compile time via a `uint_from_size<RingSize>` trait to match the ring width exactly: `RingSize=16` maps to `uint16_t`, `RingSize=32` to `uint32_t`, etc. This eliminates the need for a separate validity mask (`kValid`) — every bit in `live_mask_` is a meaningful slot bit, and standard bit-rotation functions like `std::rotr` operate at the correct width natively.
+
+16 slots × 24 bytes = 384 bytes, plus anchor / best_price / live_mask totals roughly 406 bytes — fits entirely within L1 cache.
 
 ### Three Core Primitives
 
@@ -56,19 +58,22 @@ array<Slot, 16> slots_;
 | `remove(idx)` | Destroy an empty level in place | set price to kNoPrice + reset level + clear live bit |
 | `evict(idx)` | Transfer level ownership to caller | set price to kNoPrice + exchange level to nullptr + clear live bit |
 
+All three operations use `static_cast<MaskType>(1) << idx` for bit manipulation, ensuring the shift width matches `live_mask_` exactly and avoids implicit widening/truncation.
+
 All three operations maintain the guarantee: **a non-live slot always has `price == kNoPrice`**. This is the implementation basis of Invariant 3.
 
 ### `next_live_offset()`
 
 Starting from anchor, finds the offset of the next live slot in the "worse" direction. Returns -1 if the ring is empty.
 
-Implementation: right-rotate `live_mask_` by `anchor_` positions (bringing the anchor bit to bit 0), then `countr_zero`. The rotation must be RingSize-wide, not 64-wide. Using `std::rotr` (64-bit rotation) would cause bits to land in positions `[RingSize, 63]`, survive the `kValid` mask, and produce a spurious offset. The correct form is:
+Implementation: right-rotate `live_mask_` by `anchor_` positions (bringing the anchor bit to bit 0), then `countr_zero`. Because `MaskType` is exactly `RingSize` bits wide, `std::rotr` performs a natural N-bit rotation — no manual shift-and-or, no validity mask:
 
 ```cpp
-uint64_t m = live_mask_ & kValid;
-uint64_t rotated = ((m >> anchor_) | (m << (RingSize - anchor_))) & kValid;
-return rotated ? countr_zero(rotated) : -1;
+auto rotated = std::rotr(live_mask_, static_cast<int>(anchor_));
+return rotated ? std::countr_zero(rotated) : -1;
 ```
+
+Earlier versions used `uint64_t` for `live_mask_`, which required a hand-rolled RingSize-bit rotation and a `kValid` mask to strip stray high bits. The `MaskType` approach eliminates both.
 
 ## CachedSideBook
 
