@@ -215,8 +215,7 @@ PriceLevel* CachedSideBook<IsAsk>::reanchor_to(std::int64_t price) noexcept {
     // Evict the d slots at the "far" end of the window that wrap out of range.
     // Index order: (anchor + RingSize - k) for k = 1..d.
     for (std::size_t k = 1; k <= d; ++k) {
-        std::size_t  i            = (hot_.anchor() + RingBuffer<IsAsk>::RingSize - k)
-                                    & RingBuffer<IsAsk>::kMask;
+        std::size_t  i = (hot_.anchor() + RingBuffer<IsAsk>::RingSize - k) & RingBuffer<IsAsk>::kMask;
         std::int64_t evicted_price = hot_.slot(i).price;
 
         if (hot_.slot(i).level) {
