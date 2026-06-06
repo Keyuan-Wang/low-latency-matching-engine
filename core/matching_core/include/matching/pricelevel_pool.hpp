@@ -26,7 +26,17 @@ private:
     };
 
 public:
-    explicit PriceLevelPool(std::size_t capacity);
+    explicit PriceLevelPool(std::size_t capacity)  {
+        pool_.resize(capacity);
+    
+        Slot* p = nullptr;
+        for (auto& slot : pool_) {
+            slot.next = p;
+            free_head_ = &slot;
+    
+            p = &slot;
+        }
+    }
 
     /** @return Pointer to a reset-ready level, or asserts if the pool is exhausted. */
     [[nodiscard]] [[gnu::always_inline]] inline PriceLevel* acquire() noexcept {
@@ -54,7 +64,7 @@ public:
         free_head_ = slot;
     }
 
-    [[nodiscard]] std::size_t capacity() const noexcept { return pool_.size(); }
+    [[nodiscard]] [[gnu::always_inline]] std::size_t capacity() const noexcept { return pool_.size(); }
 
 private:
     std::vector<Slot> pool_;

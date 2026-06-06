@@ -29,24 +29,24 @@ class SideBook {
 private:
     std::map<std::int64_t, PriceLevel, PriceCompare<IsAsk>> levels_{};
 public:
-    [[nodiscard]] bool empty() const noexcept {
+    [[nodiscard]] [[gnu::always_inline]] bool empty() const noexcept {
         return levels_.empty();
     }
 
-    [[nodiscard]] std::int64_t best_price() const {
+    [[nodiscard]] [[gnu::always_inline]] std::int64_t best_price() const {
         return levels_.begin()->first;
     }
 
-    [[nodiscard]] PriceLevel& best_level() {
+    [[nodiscard]] [[gnu::always_inline]] PriceLevel& best_level() {
         return levels_.begin()->second;
     }
 
-    [[nodiscard]] std::pair<PriceLevel*, bool> get_or_create(std::int64_t price) {
+    [[nodiscard]] [[gnu::always_inline]] std::pair<PriceLevel*, bool> get_or_create(std::int64_t price) {
         auto [it, inserted] = levels_.try_emplace(price);
         return {&it->second, inserted};
     }
 
-    void erase_best() {
+    [[gnu::always_inline]] void erase_best() {
         levels_.erase(levels_.begin());
     }
 };

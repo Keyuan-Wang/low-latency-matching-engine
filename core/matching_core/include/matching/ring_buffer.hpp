@@ -140,7 +140,7 @@ public:
      * @param level Non-owning pooled level; must be non-null.
      * @pre @c slots_[idx] is vacant (@ref Invariant 3 in phase7 design doc).
      */
-    void insert(std::size_t idx, std::int64_t price, PriceLevel* level) noexcept {
+     [[gnu::always_inline]] void insert(std::size_t idx, std::int64_t price, PriceLevel* level) noexcept {
         assert(price != kNoPrice);
         assert(level != nullptr);
         slots_[idx].price = price;
@@ -152,7 +152,7 @@ public:
      * @brief Clear the slot; does not return the level to @ref PriceLevelPool.
      * @pre @c slots_[idx].level is null or already empty (no resting orders).
      */
-    void remove(std::size_t idx) noexcept {
+     [[gnu::always_inline]] void remove(std::size_t idx) noexcept {
         assert(
             (slots_[idx].level == nullptr || slots_[idx].level->empty()) &&
             "remove() called on non-empty PriceLevel — resting orders would be leaked"
@@ -166,7 +166,7 @@ public:
      * @brief Detach the level pointer at @p idx and clear the slot.
      * @return Non-owning pooled level (caller typically stores it in the cold map).
      */
-    [[nodiscard]] PriceLevel* evict(std::size_t idx) noexcept {
+    [[nodiscard]] [[gnu::always_inline]] PriceLevel* evict(std::size_t idx) noexcept {
         live_mask_ &= ~(static_cast<MaskType>(1) << idx);
         slots_[idx].price = kNoPrice;
         return std::exchange(slots_[idx].level, nullptr);
@@ -180,7 +180,7 @@ public:
      * @c countr_zero. Because @c MaskType is exactly @c RingSize bits wide,
      * @c std::rotr performs a natural N-bit rotation with no masking needed.
      */
-    int next_live_offset() const noexcept {
+    [[gnu::always_inline]] int next_live_offset() const noexcept {
         const std::uint64_t rotated = std::rotr(live_mask_, static_cast<int>(anchor_));
         return rotated ? std::countr_zero(rotated) : -1;
     }
@@ -190,7 +190,7 @@ public:
      * @param idx New anchor index; slot @p idx should already match @p price.
      * @param price New best tick written to @c best_price_.
      */
-    void set_anchor(std::size_t idx, std::int64_t price) noexcept {
+    [[gnu::always_inline]] void set_anchor(std::size_t idx, std::int64_t price) noexcept {
         assert(price != kNoPrice);
         anchor_     = idx;
         best_price_ = price;
@@ -200,7 +200,7 @@ public:
      * @brief Drop all live bits after slots were individually cleared.
      * @note @c anchor_ is left stale; the next @ref set_anchor() overwrites it.
      */
-    void reset() noexcept {
+    [[gnu::always_inline]] void reset() noexcept {
         live_mask_  = 0;
         best_price_ = kNoPrice;
     }

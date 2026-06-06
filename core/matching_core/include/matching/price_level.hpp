@@ -43,7 +43,7 @@ public:
     PriceLevel(const PriceLevel&) = delete;
     PriceLevel& operator=(const PriceLevel&) = delete;
 
-    void push_back(Order& o) {
+    [[gnu::always_inline]] void push_back(Order& o) {
         o.prev = tail_;
         o.next = nullptr;
 
@@ -54,7 +54,7 @@ public:
         ++size_;
     }
 
-    void erase(Order& o) {
+    [[gnu::always_inline]] void erase(Order& o) {
         if (o.prev) o.prev->next = o.next;
         else        head_ = o.next;
         if (o.next) o.next->prev = o.prev;
@@ -65,20 +65,20 @@ public:
     }
 
     /** @brief Clear FIFO links after @ref PriceLevelPool::release (level must be empty). */
-    void reset() {
+    [[gnu::always_inline]] void reset() {
         head_ = nullptr;
         tail_ = nullptr;
         size_ = 0;
     }
 
-    [[nodiscard]] bool empty() const { return head_ == nullptr; }
+    [[nodiscard]] [[gnu::always_inline]] bool empty() const { return head_ == nullptr; }
 
-    [[nodiscard]] Order& front() const { return *head_; }
+    [[nodiscard]] [[gnu::always_inline]] Order& front() const { return *head_; }
     
-    [[nodiscard]] std::size_t size() const { return size_; }
+    [[nodiscard]] [[gnu::always_inline]] std::size_t size() const { return size_; }
 
-    const Order* begin() const { return head_; };
-    Order* begin() { return head_; };
+    [[gnu::always_inline]] const Order* begin() const { return head_; };
+    [[gnu::always_inline]] Order* begin() { return head_; };
 };
 
 }

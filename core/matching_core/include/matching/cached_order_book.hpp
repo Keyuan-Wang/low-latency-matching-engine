@@ -69,7 +69,7 @@ private:
      * @brief Whether cold tick @p p now lies inside the hot window.
      * @param p A key currently in @c cold_.
      */
-    bool cold_in_window(std::int64_t p) const noexcept {
+     [[gnu::always_inline]] bool cold_in_window(std::int64_t p) const noexcept {
         return hot_.in_hot_window(hot_.rank(p));
     }
 
@@ -78,7 +78,7 @@ private:
      * @pre @c hot_.slot(idx) is vacant (Invariant 3).
      * @return Pooled pointer stored in the ring until remove/evict + release.
      */
-    PriceLevel* materialize(std::size_t idx, std::int64_t price) noexcept {
+     [[gnu::always_inline]] PriceLevel* materialize(std::size_t idx, std::int64_t price) noexcept {
         auto l = pool_.acquire();
         hot_.insert(idx, price, l);
         return l;
@@ -89,7 +89,7 @@ private:
      * @pre @ref rank(price) >= RingSize (caller guarantees out-of-window).
      * @note On insert, acquires one pool object; key is fresh by Invariant 2.
      */
-    PriceLevel* cold_get_or_create(std::int64_t price) noexcept {
+     [[gnu::always_inline]] PriceLevel* cold_get_or_create(std::int64_t price) noexcept {
         auto [it, inserted] = cold_.try_emplace(price);
         if (inserted) it->second = pool_.acquire();
         return it->second;
