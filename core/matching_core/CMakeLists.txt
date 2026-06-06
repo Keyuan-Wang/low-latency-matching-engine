@@ -1,7 +1,5 @@
 add_library(matching_core
   src/order_book.cpp
-  src/order_pool.cpp
-  src/pricelevel_pool.cpp
 )
 
 target_include_directories(matching_core
