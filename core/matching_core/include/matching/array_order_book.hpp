@@ -19,10 +19,10 @@ public:
     explicit ArraySideBook(std::int64_t base_price = kDefaultBasePrice, std::size_t price_count = kDefaultPriceCount)
         : base_price_(base_price)
         , price_count_(price_count)
-        , levels_(price_count)
-        , active_tree(price_count) {
+        , levels_(price_count) {
 
         assert(price_count_ > 0);
+        assert(price_count_ == OccupancyTree::kBitCount);
         assert((price_count_ % 64) == 0);
     }
 
