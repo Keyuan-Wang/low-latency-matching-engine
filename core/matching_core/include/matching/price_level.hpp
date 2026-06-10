@@ -10,34 +10,11 @@ private:
     Order* tail_ = nullptr;
     std::size_t size_ = 0;
 
+    Side book_side_;
+    std::size_t idx_;
+
 public:
     PriceLevel() = default;
-
-    // Move constructor
-    PriceLevel(PriceLevel&& other) noexcept
-        : head_(other.head_),
-          tail_(other.tail_),
-          size_(other.size_)
-    {
-        other.head_ = nullptr;
-        other.tail_ = nullptr;
-        other.size_ = 0;
-    }
-
-    // Move operator
-    PriceLevel& operator=(PriceLevel&& other) noexcept {
-        if (this != &other) {
-            head_ = other.head_;
-            tail_ = other.tail_;
-            size_ = other.size_;
-
-            other.head_ = nullptr;
-            other.tail_ = nullptr;
-            other.size_ = 0;
-        }
-
-        return *this;
-    }
 
     // Prevent copy constructor (two pointers pointing to the same order pool)
     PriceLevel(const PriceLevel&) = delete;
@@ -53,6 +30,12 @@ public:
 
         ++size_;
     }
+
+
+    [[gnu::always_inline]] Side side() const noexcept { return book_side_; }
+
+    [[gnu::always_inline]] std::size_t idx() const noexcept { return idx_; }
+
 
     [[gnu::always_inline]] void erase(Order& o) {
         if (o.prev) o.prev->next = o.next;
@@ -79,6 +62,8 @@ public:
 
     [[gnu::always_inline]] const Order* begin() const { return head_; };
     [[gnu::always_inline]] Order* begin() { return head_; };
+
+    void bind_owner(Side side, std::size_t idx) noexcept { book_side_ = side; idx_ = idx; }
 };
 
 }

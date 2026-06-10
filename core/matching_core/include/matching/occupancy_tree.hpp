@@ -10,7 +10,7 @@ namespace matching {
 
 class OccupancyTree {
 public:
-    static constexpr std::size_t kBitCount = 65536;
+    static constexpr std::size_t kBitCount = 1u << 16;
     explicit OccupancyTree();
 
     void set(std::size_t bit) noexcept;

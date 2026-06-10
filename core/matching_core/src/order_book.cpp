@@ -7,6 +7,7 @@
 #include <cassert>
 
 #include "matching/order_book.hpp"
+#include "matching/array_order_book.hpp"
 #include "matching/price_level.hpp"
 #include "matching/order_pool.hpp"
 #include "matching/types.hpp"
@@ -37,8 +38,16 @@ inline bool can_cross_limit(std::int64_t limit_price, std::int64_t best_opposite
 ErrorCode OrderBook::cancel_order(OrderHandle h) {
     Order* o = pool_.resolve(h);
 
-    o->parent_level->erase(*o);
+    PriceLevel* level = o->parent_level;
+
+    level->erase(*o);
     pool_.release(o);
+
+    // clear the occupancy tree
+    if (level->empty()) [[unlikely]] {
+        if (level->side() == Side::Buy)     bids_.clear(level->idx());
+        else                                asks_.clear(level->idx());
+    }
 
     return ErrorCode::Success;
 }
@@ -51,10 +60,20 @@ AddResult OrderBook::modify_order(OrderHandle h, Side side, std::int64_t price,
     Order* o = pool_.resolve(h);
 
     const auto order_id = o->id;
-
-    o->parent_level->erase(*o);
-    pool_.release(o);
     
+    // cancel order
+    PriceLevel* level = o->parent_level;
+
+    level->erase(*o);
+    pool_.release(o);
+
+    // clear the occupancy tree
+    if (level->empty()) [[unlikely]] {
+        if (level->side() == Side::Buy)     bids_.clear(level->idx());
+        else                                asks_.clear(level->idx());
+    }
+    
+    // add order
     return add_limit_order(order_id, side, price, quantity, timestamp);
 }
 

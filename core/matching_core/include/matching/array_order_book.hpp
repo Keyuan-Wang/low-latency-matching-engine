@@ -16,14 +16,19 @@ public:
     static constexpr std::int64_t kDefaultBasePrice = 0;
     static constexpr std::size_t kDefaultPriceCount = 1u << 16;
 
-    explicit ArraySideBook(std::int64_t base_price = kDefaultBasePrice, std::size_t price_count = kDefaultPriceCount)
+    explicit ArraySideBook(std::int64_t base_price = kDefaultBasePrice)
         : base_price_(base_price)
-        , price_count_(price_count)
-        , levels_(price_count) {
+        , price_count_(kDefaultPriceCount)
+        , levels_(kDefaultPriceCount) {
 
         assert(price_count_ > 0);
         assert(price_count_ == OccupancyTree::kBitCount);
         assert((price_count_ % 64) == 0);
+
+        for (std::size_t i = 0; i < kDefaultPriceCount; ++i) {
+            if constexpr (IsAsk)    levels_[i].bind_owner(Side::Sell, i);
+            else                    levels_[i].bind_owner(Side::Buy, i);
+        }
     }
 
     [[nodiscard]] [[gnu::always_inline]] bool empty() noexcept { return !has_best_; }
@@ -41,7 +46,8 @@ public:
     PriceLevel* get_or_create(std::int64_t price) noexcept {
         const std::size_t idx = idx_of(price);
 
-        active_tree.set(idx);
+        if (levels_[idx].empty()) [[unlikely]]
+            active_tree.set(idx);
 
         if (!has_best_ || better_idx(idx, best_price_idx_)) {
             best_price_idx_ = idx;
@@ -65,9 +71,14 @@ public:
 
         // find the next best price
         best_price_idx_ = active_tree.template next_best<IsAsk>(best_price_idx_);
+    }
 
-        // to make sure the best price level is exposed to outside callers
-        clear_ghost_best_level();
+
+    [[gnu::always_inline]] void clear(std::size_t bit_pos) noexcept {
+        if (bit_pos == best_price_idx_)
+            erase_best();
+        else [[likely]]
+            active_tree.clear(bit_pos); 
     }
 
 private:
@@ -102,20 +113,6 @@ private:
     [[nodiscard]] [[gnu::always_inline]] static bool better_idx(std::size_t idx, std::size_t best_price_idx) noexcept {
         if constexpr (IsAsk)    return idx < best_price_idx;    // for ask book, better price is smaller
         else                    return idx > best_price_idx;    // for bid book, better price is larger
-    }
-
-
-    void clear_ghost_best_level() noexcept {
-        while (has_best_ && levels_[best_price_idx_].empty()) {
-            active_tree.clear(best_price_idx_);
-
-            if (active_tree.empty()) [[unlikely]] {
-                has_best_ = false;
-                return;
-            }
-
-            best_price_idx_ = active_tree.template next_best<IsAsk>(best_price_idx_);
-        }
     }
 
 };
