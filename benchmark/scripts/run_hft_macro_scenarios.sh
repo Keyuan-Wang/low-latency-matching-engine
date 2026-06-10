@@ -21,7 +21,7 @@ SEED="${SEED:-42}"
 FOCUS="${FOCUS:-all}"
 VERSION_TAG="${VERSION_TAG:-baseline}"
 COMMIT_SHA="${COMMIT_SHA:-unknown}"
-OUT_CSV="${OUT_CSV:-$OUT_DIR/hft_macro_scenario_cycles.csv}"
+OUT_CSV="${OUT_CSV:-$OUT_DIR/hft_macro_scenario_calls.csv}"
 
 if (( DRY_RUN == 0 )); then
 	cmake -S "$ROOT" -B "$ROOT/build" \
@@ -33,7 +33,7 @@ fi
 
 BIN="$ROOT/build/benchmark/bench_hft_macro_scenarios"
 
-echo "===== HFT macro per-scenario cycles ====="
+echo "===== HFT macro per-scenario call data ====="
 echo "  trials      : $TRIALS"
 echo "  focus       : $FOCUS"
 echo "  batch_size  : $BATCH_SIZE"
@@ -75,5 +75,5 @@ if (( DRY_RUN == 1 )); then
 	echo "Dry-run complete. $TRIALS commands would be executed."
 else
 	echo ""
-	echo "scenario cycles saved: $OUT_CSV"
+	echo "scenario call data saved: $OUT_CSV"
 fi

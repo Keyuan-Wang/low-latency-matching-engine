@@ -15,6 +15,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstdint>
 #include <cstdlib>
 #include <fstream>
@@ -33,10 +34,27 @@
 namespace {
 
 using benchmark_runner::hft::MacroScenario;
+using Clock = std::chrono::steady_clock;
 
 struct ScenarioArgs {
 	benchmark_runner::Args base{};
 	std::string focus = "all";
+};
+
+struct MeasurementOverhead {
+	std::uint64_t cycles = 0;
+	std::uint64_t elapsed_ns = 0;
+};
+
+struct ScenarioSample {
+	std::uint64_t measurement_iter = 0;
+	std::uint64_t replay_iter_idx = 0;
+	std::uint64_t op_index = 0;
+	std::uint64_t scenario_call_index = 0;
+	std::uint64_t raw_cycles = 0;
+	std::uint64_t cycles = 0;
+	std::uint64_t raw_elapsed_ns = 0;
+	std::uint64_t elapsed_ns = 0;
 };
 
 struct RowStats {
@@ -54,7 +72,7 @@ struct RowStats {
 
 struct CampaignStats {
 	std::array<std::uint64_t, benchmark_runner::hft::kMacroScenarioCount> counts{};
-	std::array<std::vector<double>, benchmark_runner::hft::kMacroScenarioCount>
+	std::array<std::vector<ScenarioSample>, benchmark_runner::hft::kMacroScenarioCount>
 			samples{};
 	std::uint64_t ok = 0;
 };
@@ -71,16 +89,26 @@ struct CampaignStats {
 	return t;
 }
 
-[[nodiscard]] std::uint64_t MeasureTimingOverhead() {
+[[nodiscard]] MeasurementOverhead MeasureTimingOverhead() {
 	constexpr int kSamples = 10000;
-	std::vector<std::uint64_t> samples;
-	samples.reserve(kSamples);
+	std::vector<std::uint64_t> cycle_samples;
+	std::vector<std::uint64_t> elapsed_samples;
+	cycle_samples.reserve(kSamples);
+	elapsed_samples.reserve(kSamples);
 	for (int i = 0; i < kSamples; ++i) {
+		const auto ns0 = Clock::now();
 		const std::uint64_t t0 = ReadCycleStart();
 		const std::uint64_t t1 = ReadCycleStop();
-		samples.push_back(t1 - t0);
+		const auto ns1 = Clock::now();
+		cycle_samples.push_back(t1 - t0);
+		elapsed_samples.push_back(
+				static_cast<std::uint64_t>(
+						std::chrono::duration_cast<std::chrono::nanoseconds>(ns1 - ns0)
+								.count()));
 	}
-	return *std::min_element(samples.begin(), samples.end());
+	return MeasurementOverhead{
+			*std::min_element(cycle_samples.begin(), cycle_samples.end()),
+			*std::min_element(elapsed_samples.begin(), elapsed_samples.end())};
 }
 
 void ParseArgs(int argc, char** argv, ScenarioArgs& args) {
@@ -170,13 +198,14 @@ void RunUntimedWarmup(const benchmark_runner::Args& args,
 }
 
 void RunMeasuredPass(const benchmark_runner::Args& args,
-										 std::uint64_t iter_idx,
+										 std::uint64_t measurement_iter,
+										 std::uint64_t replay_iter_idx,
 										 MacroScenario focus,
 										 bool record_composition,
-										 std::uint64_t timing_overhead,
+										 MeasurementOverhead timing_overhead,
 										 CampaignStats& stats) {
 	benchmark_runner::hft::HftMacroWorkload workload;
-	workload.Setup(args, iter_idx);
+	workload.Setup(args, replay_iter_idx);
 
 	std::uint64_t ok = 0;
 	for (std::size_t i = 0; i < workload.size(); ++i) {
@@ -186,14 +215,33 @@ void RunMeasuredPass(const benchmark_runner::Args& args,
 		}
 
 		if (scenario == focus) {
+			const auto ns0 = Clock::now();
 			const std::uint64_t t0 = ReadCycleStart();
 			(void)workload.Execute(i, ok);
 			const std::uint64_t t1 = ReadCycleStop();
+			const auto ns1 = Clock::now();
 			const std::uint64_t raw = t1 - t0;
 			const std::uint64_t adjusted =
-					(raw > timing_overhead) ? (raw - timing_overhead) : 0;
-			stats.samples[benchmark_runner::hft::ScenarioIndex(scenario)]
-					.push_back(static_cast<double>(adjusted));
+					(raw > timing_overhead.cycles) ? (raw - timing_overhead.cycles) : 0;
+			const std::uint64_t raw_elapsed =
+					static_cast<std::uint64_t>(
+							std::chrono::duration_cast<std::chrono::nanoseconds>(ns1 - ns0)
+									.count());
+			const std::uint64_t adjusted_elapsed =
+					(raw_elapsed > timing_overhead.elapsed_ns)
+							? (raw_elapsed - timing_overhead.elapsed_ns)
+							: 0;
+			auto& samples =
+					stats.samples[benchmark_runner::hft::ScenarioIndex(scenario)];
+			samples.push_back(ScenarioSample{
+					measurement_iter,
+					replay_iter_idx,
+					static_cast<std::uint64_t>(i),
+					static_cast<std::uint64_t>(samples.size()),
+					raw,
+					adjusted,
+					raw_elapsed,
+					adjusted_elapsed});
 		} else {
 			(void)workload.Execute(i, ok);
 		}
@@ -218,14 +266,21 @@ void RunMeasuredPass(const benchmark_runner::Args& args,
 	row.measured = !samples.empty();
 	if (!row.measured) return row;
 
+	std::vector<double> cycle_values;
+	cycle_values.reserve(samples.size());
+	for (const auto& sample : samples) {
+		cycle_values.push_back(static_cast<double>(sample.cycles));
+	}
+
 	row.avg_cycles =
-			std::accumulate(samples.begin(), samples.end(), 0.0) /
-			static_cast<double>(samples.size());
-	row.p50_cycles = benchmark_runner::Percentile(samples, 0.50);
-	row.p95_cycles = benchmark_runner::Percentile(samples, 0.95);
-	row.p99_cycles = benchmark_runner::Percentile(samples, 0.99);
-	row.p999_cycles = benchmark_runner::Percentile(samples, 0.999);
-	auto [min_it, max_it] = std::minmax_element(samples.begin(), samples.end());
+			std::accumulate(cycle_values.begin(), cycle_values.end(), 0.0) /
+			static_cast<double>(cycle_values.size());
+	row.p50_cycles = benchmark_runner::Percentile(cycle_values, 0.50);
+	row.p95_cycles = benchmark_runner::Percentile(cycle_values, 0.95);
+	row.p99_cycles = benchmark_runner::Percentile(cycle_values, 0.99);
+	row.p999_cycles = benchmark_runner::Percentile(cycle_values, 0.999);
+	auto [min_it, max_it] =
+			std::minmax_element(cycle_values.begin(), cycle_values.end());
 	row.min_cycles = *min_it;
 	row.max_cycles = *max_it;
 	return row;
@@ -234,9 +289,9 @@ void RunMeasuredPass(const benchmark_runner::Args& args,
 void PrintRow(const ScenarioArgs& args,
 							MacroScenario scenario,
 							const RowStats& row,
-							std::uint64_t timing_overhead,
+							MeasurementOverhead timing_overhead,
 							std::uint64_t ok) {
-	std::cout << "mode=scenario_cycles"
+	std::cout << "mode=scenario_cycles_summary"
 						<< " scenario=hft_macro"
 						<< " op_type="
 						<< benchmark_runner::hft::ScenarioName(scenario)
@@ -259,71 +314,101 @@ void PrintRow(const ScenarioArgs& args,
 						<< " p999_cycles=" << row.p999_cycles
 						<< " min_cycles=" << row.min_cycles
 						<< " max_cycles=" << row.max_cycles
-						<< " timing_overhead_cycles=" << timing_overhead
+						<< " timing_overhead_cycles=" << timing_overhead.cycles
+						<< " elapsed_overhead_ns=" << timing_overhead.elapsed_ns
 						<< " ok=" << ok << "\n";
 }
 
-void WriteCsvRow(const ScenarioArgs& args,
-								 MacroScenario scenario,
-								 const RowStats& row,
-								 std::uint64_t timing_overhead,
-								 std::uint64_t ok) {
+void WriteCsvSamples(const ScenarioArgs& args,
+										 const CampaignStats& stats,
+										 MeasurementOverhead timing_overhead) {
 	if (args.base.out_csv.empty()) return;
 
 	benchmark_runner::EnsureCsvHeader(
 			args.base.out_csv,
 			"mode,scenario,op_type,version_tag,commit_sha,trial_id,orders,levels,"
-			"batch_size,warmup_iters,iters,seed,count,share,measured,avg_cycles,"
-			"p50_cycles,p95_cycles,p99_cycles,p999_cycles,min_cycles,max_cycles,"
-			"timing_overhead_cycles,ok");
+			"batch_size,warmup_iters,iters,seed,measurement_iter,replay_iter_idx,"
+			"op_index,scenario_call_index,raw_cycles,cycles,timing_overhead_cycles,"
+			"raw_elapsed_ns,elapsed_ns,elapsed_overhead_ns");
 
 	std::ofstream f(args.base.out_csv, std::ios::app);
-	f << "scenario_cycles,"
-		<< "hft_macro,"
-		<< benchmark_runner::hft::ScenarioName(scenario)
-		<< ","
-		<< args.base.version_tag
-		<< ","
-		<< args.base.commit_sha
-		<< ","
-		<< args.base.trial_id
-		<< ","
-		<< args.base.orders
-		<< ","
-		<< args.base.levels
-		<< ","
-		<< args.base.batch_size
-		<< ","
-		<< args.base.warmup_iters
-		<< ","
-		<< args.base.iters
-		<< ","
-		<< args.base.seed
-		<< ","
-		<< row.count
-		<< ","
-		<< row.share
-		<< ","
-		<< (row.measured ? 1 : 0)
-		<< ","
-		<< row.avg_cycles
-		<< ","
-		<< row.p50_cycles
-		<< ","
-		<< row.p95_cycles
-		<< ","
-		<< row.p99_cycles
-		<< ","
-		<< row.p999_cycles
-		<< ","
-		<< row.min_cycles
-		<< ","
-		<< row.max_cycles
-		<< ","
-		<< timing_overhead
-		<< ","
-		<< ok
-		<< "\n";
+	const std::array<MacroScenario, 3> measured_rows = {
+			MacroScenario::AddRest,
+			MacroScenario::CancelOrder,
+			MacroScenario::ModifyOrder,
+	};
+
+	struct CsvSampleRef {
+		MacroScenario scenario = MacroScenario::Unmeasured;
+		const ScenarioSample* sample = nullptr;
+	};
+	std::vector<CsvSampleRef> rows;
+	for (MacroScenario scenario : measured_rows) {
+		const auto& samples =
+				stats.samples[benchmark_runner::hft::ScenarioIndex(scenario)];
+		for (const auto& sample : samples) {
+			rows.push_back(CsvSampleRef{scenario, &sample});
+		}
+	}
+
+	std::sort(rows.begin(), rows.end(),
+						[](const CsvSampleRef& lhs, const CsvSampleRef& rhs) {
+							if (lhs.sample->measurement_iter != rhs.sample->measurement_iter) {
+								return lhs.sample->measurement_iter <
+											 rhs.sample->measurement_iter;
+							}
+							if (lhs.sample->op_index != rhs.sample->op_index) {
+								return lhs.sample->op_index < rhs.sample->op_index;
+							}
+							return benchmark_runner::hft::ScenarioIndex(lhs.scenario) <
+										 benchmark_runner::hft::ScenarioIndex(rhs.scenario);
+						});
+
+	for (const auto& row : rows) {
+		const auto& sample = *row.sample;
+			f << "scenario_call,"
+				<< "hft_macro,"
+				<< benchmark_runner::hft::ScenarioName(row.scenario)
+				<< ","
+				<< args.base.version_tag
+				<< ","
+				<< args.base.commit_sha
+				<< ","
+				<< args.base.trial_id
+				<< ","
+				<< args.base.orders
+				<< ","
+				<< args.base.levels
+				<< ","
+				<< args.base.batch_size
+				<< ","
+				<< args.base.warmup_iters
+				<< ","
+				<< args.base.iters
+				<< ","
+				<< args.base.seed
+				<< ","
+				<< sample.measurement_iter
+				<< ","
+				<< sample.replay_iter_idx
+				<< ","
+				<< sample.op_index
+				<< ","
+				<< sample.scenario_call_index
+				<< ","
+				<< sample.raw_cycles
+				<< ","
+				<< sample.cycles
+				<< ","
+				<< timing_overhead.cycles
+				<< ","
+				<< sample.raw_elapsed_ns
+				<< ","
+				<< sample.elapsed_ns
+				<< ","
+				<< timing_overhead.elapsed_ns
+				<< "\n";
+	}
 }
 
 }  // namespace
@@ -333,7 +418,7 @@ int main(int argc, char** argv) {
 	ParseArgs(argc, argv, args);
 
 	const auto foci = FocusList(args.focus);
-	const std::uint64_t timing_overhead = MeasureTimingOverhead();
+	const MeasurementOverhead timing_overhead = MeasureTimingOverhead();
 
 	std::uint64_t iter_counter = 0;
 	for (std::uint64_t i = 0; i < args.base.warmup_iters; ++i) {
@@ -344,7 +429,7 @@ int main(int argc, char** argv) {
 	CampaignStats stats;
 	for (std::uint64_t i = 0; i < args.base.iters; ++i) {
 		for (std::size_t f = 0; f < foci.size(); ++f) {
-			RunMeasuredPass(args.base, iter_counter, foci[f], f == 0,
+			RunMeasuredPass(args.base, i, iter_counter, foci[f], f == 0,
 											timing_overhead, stats);
 		}
 		++iter_counter;
@@ -364,8 +449,8 @@ int main(int argc, char** argv) {
 	for (MacroScenario scenario : rows) {
 		const RowStats row = BuildRowStats(scenario, stats, total_ops);
 		PrintRow(args, scenario, row, timing_overhead, stats.ok);
-		WriteCsvRow(args, scenario, row, timing_overhead, stats.ok);
 	}
+	WriteCsvSamples(args, stats, timing_overhead);
 
 	return 0;
 }
