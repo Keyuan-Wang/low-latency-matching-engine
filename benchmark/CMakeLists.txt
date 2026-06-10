@@ -79,6 +79,11 @@ add_executable(bench_hft_macro
 )
 target_link_libraries(bench_hft_macro PRIVATE benchmark_runner_lib)
 
+add_executable(bench_hft_macro_scenarios
+	src/hft/bench_hft_macro_scenarios.cpp
+)
+target_link_libraries(bench_hft_macro_scenarios PRIVATE benchmark_runner_lib)
+
 # --- Smoke test ---
 add_executable(benchmark_smoke_test
 	tests/benchmark_smoke_test.cpp
