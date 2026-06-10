@@ -26,23 +26,15 @@ public:
         assert((price_count_ % 64) == 0);
     }
 
-    [[nodiscard]] [[gnu::always_inline]] bool empty() noexcept {
-        clear_ghost_best_level();
-
-        return !has_best_;
-    };
+    [[nodiscard]] [[gnu::always_inline]] bool empty() noexcept { return !has_best_; }
 
     [[nodiscard]] [[gnu::always_inline]] std::int64_t best_price() noexcept {
-        clear_ghost_best_level();
         assert(has_best_);
-
         return price_of(best_price_idx_);
     };
 
     [[nodiscard]] [[gnu::always_inline]] PriceLevel& best_level() noexcept {
-        clear_ghost_best_level();
         assert(has_best_);
-
         return levels_[best_price_idx_];
     };
 
