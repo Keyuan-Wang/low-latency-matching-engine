@@ -4,9 +4,9 @@
  *
  * This tool keeps the real hft_macro state evolution, but only records cycle
  * samples for the three single-operation buckets we want to reason about:
- * add_rest, cancel_order, and modify_order. Matching-heavy operations are
- * still replayed so book state stays realistic, but they are reported only as
- * unmeasured workload composition.
+ * add_rest_existing_level, add_rest_new_level, and cancel_order. Matching-heavy
+ * operations and modify_order are still replayed so book state stays realistic,
+ * but they are reported only as unmeasured workload composition.
  */
 
 #include "bench_common.hpp"
@@ -164,12 +164,14 @@ void ParseArgs(int argc, char** argv, ScenarioArgs& args) {
 }
 
 [[nodiscard]] MacroScenario ParseFocusOne(const std::string& focus) {
-	if (focus == "add_rest" || focus == "add") return MacroScenario::AddRest;
+	if (focus == "add_rest_existing_level" || focus == "add_existing") {
+		return MacroScenario::AddRestExistingLevel;
+	}
+	if (focus == "add_rest_new_level" || focus == "add_new") {
+		return MacroScenario::AddRestNewLevel;
+	}
 	if (focus == "cancel_order" || focus == "cancel") {
 		return MacroScenario::CancelOrder;
-	}
-	if (focus == "modify_order" || focus == "modify") {
-		return MacroScenario::ModifyOrder;
 	}
 	std::cerr << "unknown --focus: " << focus << "\n";
 	std::exit(2);
@@ -178,9 +180,9 @@ void ParseArgs(int argc, char** argv, ScenarioArgs& args) {
 [[nodiscard]] std::vector<MacroScenario> FocusList(const std::string& focus) {
 	if (focus == "all") {
 		return {
-				MacroScenario::AddRest,
+				MacroScenario::AddRestExistingLevel,
+				MacroScenario::AddRestNewLevel,
 				MacroScenario::CancelOrder,
-				MacroScenario::ModifyOrder,
 		};
 	}
 	return {ParseFocusOne(focus)};
@@ -333,9 +335,9 @@ void WriteCsvSamples(const ScenarioArgs& args,
 
 	std::ofstream f(args.base.out_csv, std::ios::app);
 	const std::array<MacroScenario, 3> measured_rows = {
-			MacroScenario::AddRest,
+			MacroScenario::AddRestExistingLevel,
+			MacroScenario::AddRestNewLevel,
 			MacroScenario::CancelOrder,
-			MacroScenario::ModifyOrder,
 	};
 
 	struct CsvSampleRef {
@@ -440,9 +442,9 @@ int main(int argc, char** argv) {
 											std::uint64_t{0});
 	const std::array<MacroScenario, benchmark_runner::hft::kMacroScenarioCount>
 			rows = {
-					MacroScenario::AddRest,
+					MacroScenario::AddRestExistingLevel,
+					MacroScenario::AddRestNewLevel,
 					MacroScenario::CancelOrder,
-					MacroScenario::ModifyOrder,
 					MacroScenario::Unmeasured,
 			};
 

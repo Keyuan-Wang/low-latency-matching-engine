@@ -15,9 +15,9 @@
 namespace benchmark_runner::hft {
 
 enum class MacroScenario : std::uint8_t {
-	AddRest = 0,
-	CancelOrder = 1,
-	ModifyOrder = 2,
+	AddRestExistingLevel = 0,
+	AddRestNewLevel = 1,
+	CancelOrder = 2,
 	Unmeasured = 3,
 	Count = 4,
 };
@@ -31,12 +31,12 @@ inline std::size_t ScenarioIndex(MacroScenario scenario) noexcept {
 
 inline const char* ScenarioName(MacroScenario scenario) noexcept {
 	switch (scenario) {
-	case MacroScenario::AddRest:
-		return "add_rest";
+	case MacroScenario::AddRestExistingLevel:
+		return "add_rest_existing_level";
+	case MacroScenario::AddRestNewLevel:
+		return "add_rest_new_level";
 	case MacroScenario::CancelOrder:
 		return "cancel_order";
-	case MacroScenario::ModifyOrder:
-		return "modify_order";
 	case MacroScenario::Unmeasured:
 		return "unmeasured";
 	case MacroScenario::Count:
@@ -46,9 +46,9 @@ inline const char* ScenarioName(MacroScenario scenario) noexcept {
 }
 
 inline bool IsMeasuredScenario(MacroScenario scenario) noexcept {
-	return scenario == MacroScenario::AddRest ||
-				 scenario == MacroScenario::CancelOrder ||
-				 scenario == MacroScenario::ModifyOrder;
+	return scenario == MacroScenario::AddRestExistingLevel ||
+				 scenario == MacroScenario::AddRestNewLevel ||
+				 scenario == MacroScenario::CancelOrder;
 }
 
 // ------------------------------------------------------------------
@@ -228,14 +228,18 @@ private:
 				5,6,6,6,7,7,8,9,10,12,15,20,30,50,75,100};
 		op.qty = kQtyTable[param_rng_.next() % 32];
 		op.oid = id_counter_++;
+		const bool level_existed_before = has_price_level(op.side, op.price);
 
 		auto const res =
 				book_->add_limit_order(op.oid, op.side, op.price, op.qty, op.oid);
-		op.scenario =
-				(res.code == matching::ErrorCode::Success && res.trades.empty() &&
-				 res.remaining_quantity > 0)
-						? MacroScenario::AddRest
-						: MacroScenario::Unmeasured;
+		if (res.code == matching::ErrorCode::Success && res.trades.empty() &&
+				res.remaining_quantity > 0) {
+			op.scenario = level_existed_before
+												? MacroScenario::AddRestExistingLevel
+												: MacroScenario::AddRestNewLevel;
+		} else {
+			op.scenario = MacroScenario::Unmeasured;
+		}
 		apply_trade_fills(res.trades, &book_handles_);
 		if (res.code == matching::ErrorCode::Success &&
 				res.remaining_quantity > 0) {
@@ -327,8 +331,7 @@ private:
 			return;
 		}
 
-		op.scenario = res.trades.empty() ? MacroScenario::ModifyOrder
-																		 : MacroScenario::Unmeasured;
+		op.scenario = MacroScenario::Unmeasured;
 		book_handles_.erase(book_handle_it);
 		track_remove_predicted(target);
 		apply_trade_fills(res.trades, &book_handles_);
@@ -488,6 +491,14 @@ private:
 	void update_best_prices() {
 		best_bid_ = bid_level_counts_.empty() ? 0 : bid_level_counts_.begin()->first;
 		best_ask_ = ask_level_counts_.empty() ? 1000 : ask_level_counts_.begin()->first;
+	}
+
+	[[nodiscard]] bool has_price_level(matching::Side side,
+																		 std::int64_t price) const {
+		if (side == matching::Side::Buy) {
+			return bid_level_counts_.contains(price);
+		}
+		return ask_level_counts_.contains(price);
 	}
 
 	bool do_limit_add() {
