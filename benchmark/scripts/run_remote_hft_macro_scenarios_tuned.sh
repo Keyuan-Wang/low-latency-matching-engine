@@ -170,13 +170,31 @@ detect_cpu() {
 		echo "$BENCH_CPU"
 		return
 	fi
-	# Prefer a non-zero logical CPU to avoid CPU0 timer/housekeeping noise.
+	# Prefer a non-zero logical CPU whose SMT sibling set does not include CPU0.
+	# CPU0 often carries timer/housekeeping noise; sharing its physical core can
+	# still perturb the benchmark even if the benchmark itself is bound elsewhere.
+	local cpus=()
+	mapfile -t cpus < <(lscpu -p=CPU 2>/dev/null | awk -F, '$1 !~ /^#/ {print $1}')
 	local cpu
-	cpu="$(lscpu -p=CPU 2>/dev/null | awk -F, '$1 !~ /^#/ && $1 != 0 {print $1; exit}')"
-	if [[ -z "$cpu" ]]; then
-		cpu=0
+	for cpu in "${cpus[@]}"; do
+		[[ "$cpu" == "0" ]] && continue
+		local siblings=",$(detect_siblings "$cpu"),"
+		if [[ "$siblings" != *",0,"* && "$siblings" != *",0-"* && "$siblings" != *"-0,"* ]]; then
+			echo "$cpu"
+			return
+		fi
+	done
+	for cpu in "${cpus[@]}"; do
+		if [[ "$cpu" != "0" ]]; then
+			echo "$cpu"
+			return
+		fi
+	done
+	if [[ ${#cpus[@]} -gt 0 ]]; then
+		echo "${cpus[0]}"
+	else
+		echo 0
 	fi
-	echo "$cpu"
 }
 
 detect_numa_node() {
