@@ -134,13 +134,17 @@ def load_calls(path: Path) -> pd.DataFrame:
 	return df
 
 
-def histogram_edges(values: np.ndarray, n_bins: int, upper_pct: float) -> np.ndarray:
+def histogram_edges(
+	values: np.ndarray, n_bins: int, upper_pct: float, *, min_hi: float | None = None
+) -> np.ndarray:
 	values = values[np.isfinite(values)]
 	if values.size == 0:
 		return np.linspace(0.0, 1.0, n_bins + 1)
 
 	lo = float(np.min(values))
 	hi = float(np.percentile(values, upper_pct))
+	if min_hi is not None:
+		hi = max(hi, float(min_hi))
 	if hi <= lo:
 		hi = lo + 1.0
 	return np.linspace(lo, hi, n_bins + 1)
@@ -162,6 +166,7 @@ def percentile_stats(values: np.ndarray) -> dict[str, float]:
 		"p50": float(np.percentile(values, 50)),
 		"p95": float(np.percentile(values, 95)),
 		"p99": float(np.percentile(values, 99)),
+		"p999": float(np.percentile(values, 99.9)),
 	}
 
 
@@ -176,7 +181,7 @@ def draw_panel(
 	clip_pct: float,
 	stats: dict[str, float],
 ) -> None:
-	edges = histogram_edges(values, n_bins, clip_pct)
+	edges = histogram_edges(values, n_bins, clip_pct, min_hi=stats["p999"])
 	centers, counts, widths = compute_hist(values, edges)
 
 	ax.bar(
@@ -191,8 +196,9 @@ def draw_panel(
 		zorder=2,
 	)
 
-	for pct, ls in ((50, "-"), (95, "--")):
-		line_val = stats["p50"] if pct == 50 else stats["p95"]
+	for pct, ls in ((50, "-"), (95, "--"), (99.9, ":")):
+		key = "p50" if pct == 50 else "p95" if pct == 95 else "p999"
+		line_val = stats[key]
 		if edges[0] <= line_val <= edges[-1]:
 			ax.axvline(
 				line_val,
@@ -219,7 +225,8 @@ def draw_panel(
 		f"mean={stats['mean']:.1f}\n"
 		f"p50={stats['p50']:.1f}\n"
 		f"p95={stats['p95']:.1f}\n"
-		f"p99={stats['p99']:.1f}"
+		f"p99={stats['p99']:.1f}\n"
+		f"p999={stats['p999']:.1f}"
 	)
 	ax.text(
 		0.98,
@@ -283,13 +290,14 @@ def main() -> int:
 	legend_handles.extend([
 		plt.Line2D([0], [0], color="#1F1F1F", linestyle="-", linewidth=1.2, label="p50"),
 		plt.Line2D([0], [0], color="#1F1F1F", linestyle="--", linewidth=1.2, label="p95"),
+		plt.Line2D([0], [0], color="#1F1F1F", linestyle=":", linewidth=1.2, label="p999"),
 	])
 
 	trial_str = ",".join(str(t) for t in meta_trials)
 	fig.suptitle(
 		f"hft_macro per-scenario distributions  ·  {meta_tag}@{meta_commit}  ·  "
 		f"trials=[{trial_str}]  ·  calls={meta_n:,}  ·  bins={bins}  ·  "
-		f"x-axis ≤ p{clip_pct:g}",
+		f"x-axis ≤ max(p{clip_pct:g}, p999)",
 		fontsize=12.5,
 		fontweight="bold",
 		y=1.02,
@@ -297,7 +305,7 @@ def main() -> int:
 	fig.legend(
 		handles=legend_handles,
 		loc="upper center",
-		ncol=5,
+		ncol=6,
 		frameon=True,
 		bbox_to_anchor=(0.5, 1.0),
 		fontsize=9,
