@@ -300,6 +300,165 @@ reduce_background_noise() {
 	} > "$REMOTE_ARTIFACTS_DIR/noise_after.txt"
 }
 
+capture_kernel_activity() {
+	local phase="$1"
+	local dir="$2"
+	mkdir -p "$dir"
+	cat /proc/interrupts > "$dir/interrupts_${phase}.txt" 2>/dev/null || true
+	cat /proc/softirqs > "$dir/softirqs_${phase}.txt" 2>/dev/null || true
+	cat /proc/schedstat > "$dir/schedstat_${phase}.txt" 2>/dev/null || true
+}
+
+summarize_kernel_activity_delta() {
+	local before_dir="$1"
+	local after_dir="$2"
+	local out="$3"
+	python3 - "$before_dir" "$after_dir" "$out" "$BENCH_CPU_SELECTED" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+before_dir = Path(sys.argv[1])
+after_dir = Path(sys.argv[2])
+out = Path(sys.argv[3])
+bench_cpu = int(sys.argv[4])
+
+def cpu_count_from_header(line):
+	return len(re.findall(r"\bCPU\d+\b", line))
+
+def parse_interrupts(path):
+	lines = path.read_text(errors="ignore").splitlines()
+	cpu_count = 0
+	rows = []
+	for line in lines:
+		if line.lstrip().startswith("CPU0"):
+			cpu_count = cpu_count_from_header(line)
+			continue
+		if ":" not in line or cpu_count == 0:
+			continue
+		name, rest = line.split(":", 1)
+		parts = rest.split()
+		if len(parts) < cpu_count:
+			continue
+		try:
+			values = [int(x) for x in parts[:cpu_count]]
+		except ValueError:
+			continue
+		label = " ".join([name.strip()] + parts[cpu_count:])
+		rows.append((label, values))
+	return cpu_count, rows
+
+def parse_softirqs(path):
+	lines = path.read_text(errors="ignore").splitlines()
+	cpu_count = 0
+	rows = []
+	for line in lines:
+		if line.lstrip().startswith("CPU0"):
+			cpu_count = cpu_count_from_header(line)
+			continue
+		if ":" not in line or cpu_count == 0:
+			continue
+		name, rest = line.split(":", 1)
+		parts = rest.split()
+		if len(parts) < cpu_count:
+			continue
+		try:
+			values = [int(x) for x in parts[:cpu_count]]
+		except ValueError:
+			continue
+		rows.append((name.strip(), values))
+	return cpu_count, rows
+
+def parse_schedstat(path):
+	rows = {}
+	for line in path.read_text(errors="ignore").splitlines():
+		parts = line.split()
+		if not parts or not re.fullmatch(r"cpu\d+", parts[0]):
+			continue
+		cpu = int(parts[0][3:])
+		values = []
+		for item in parts[1:]:
+			try:
+				values.append(int(item))
+			except ValueError:
+				values.append(0)
+		rows[cpu] = values
+	return rows
+
+def row_map(rows):
+	return {label: values for label, values in rows}
+
+def write_irq_like(title, before_file, after_file, parser, fh):
+	before_count, before_rows = parser(before_file)
+	after_count, after_rows = parser(after_file)
+	cpu_count = min(before_count, after_count)
+	before = row_map(before_rows)
+	after = row_map(after_rows)
+	labels = sorted(set(before) | set(after))
+	fh.write(f"===== {title} delta =====\n")
+	fh.write(f"cpu_count={cpu_count} bench_cpu={bench_cpu}\n")
+	totals = [0] * cpu_count
+	entries = []
+	for label in labels:
+		b = before.get(label, [0] * cpu_count)
+		a = after.get(label, [0] * cpu_count)
+		d = [a[i] - b[i] for i in range(cpu_count)]
+		for i, v in enumerate(d):
+			totals[i] += v
+		entries.append((d[bench_cpu] if bench_cpu < cpu_count else 0, sum(d), label, d))
+	fh.write("total_by_cpu=" + ",".join(str(x) for x in totals) + "\n")
+	if bench_cpu < cpu_count:
+		fh.write(f"bench_cpu_total={totals[bench_cpu]}\n")
+	fh.write("top_rows_by_bench_cpu_delta:\n")
+	for bench_delta, total_delta, label, d in sorted(entries, reverse=True)[:20]:
+		if bench_delta == 0 and total_delta == 0:
+			continue
+		fh.write(
+			f"  bench_cpu_delta={bench_delta} total_delta={total_delta} "
+			f"label={label} per_cpu={d}\n"
+		)
+	fh.write("\n")
+
+def write_schedstat(before_file, after_file, fh):
+	before = parse_schedstat(before_file)
+	after = parse_schedstat(after_file)
+	cpus = sorted(set(before) | set(after))
+	fh.write("===== schedstat delta =====\n")
+	fh.write(f"bench_cpu={bench_cpu}\n")
+	for cpu in cpus:
+		b = before.get(cpu, [])
+		a = after.get(cpu, [])
+		n = min(len(b), len(a))
+		if n == 0:
+			continue
+		d = [a[i] - b[i] for i in range(n)]
+		prefix = "  * " if cpu == bench_cpu else "    "
+		fh.write(f"{prefix}cpu{cpu} first_fields_delta={d[:12]}\n")
+	fh.write("\n")
+
+with out.open("w") as fh:
+	write_irq_like(
+		"interrupts",
+		before_dir / "interrupts_before.txt",
+		after_dir / "interrupts_after.txt",
+		parse_interrupts,
+		fh,
+	)
+	write_irq_like(
+		"softirqs",
+		before_dir / "softirqs_before.txt",
+		after_dir / "softirqs_after.txt",
+		parse_softirqs,
+		fh,
+	)
+	write_schedstat(
+		before_dir / "schedstat_before.txt",
+		after_dir / "schedstat_after.txt",
+		fh,
+	)
+PY
+}
+
 BENCH_CPU_SELECTED="$(detect_cpu)"
 NUMA_NODE_SELECTED="$(detect_numa_node "$BENCH_CPU_SELECTED")"
 SMT_SIBLINGS="$(detect_siblings "$BENCH_CPU_SELECTED")"
@@ -319,6 +478,9 @@ echo "  SMT siblings : $SMT_SIBLINGS"
 echo "  NUMA node    : $NUMA_NODE_SELECTED"
 echo "  use numactl  : $USE_NUMACTL"
 echo "  output       : $RESULTS_DIR"
+
+capture_kernel_activity before "$RESULTS_DIR"
+capture_kernel_activity before "$REMOTE_ARTIFACTS_DIR"
 
 RUN_CMD=(bash benchmark/scripts/run_hft_macro_scenarios.sh)
 if [[ "$USE_NUMACTL" == "1" ]] && command -v numactl >/dev/null 2>&1; then
@@ -342,6 +504,12 @@ env \
 	OUT_DIR="$RESULTS_DIR" \
 	OUT_CSV="$OUT_CSV" \
 	"${RUN_PREFIX[@]}" "${RUN_CMD[@]}" | tee "$REMOTE_ARTIFACTS_DIR/run_hft_macro_scenarios_tuned.log"
+
+capture_kernel_activity after "$RESULTS_DIR"
+capture_kernel_activity after "$REMOTE_ARTIFACTS_DIR"
+summarize_kernel_activity_delta "$RESULTS_DIR" "$RESULTS_DIR" \
+	"$RESULTS_DIR/kernel_activity_delta.txt"
+cp "$RESULTS_DIR/kernel_activity_delta.txt" "$REMOTE_ARTIFACTS_DIR/kernel_activity_delta.txt"
 
 echo "--- Plot per-scenario distributions ---"
 CSV="$OUT_CSV" OUT="$OUT_PNG" \
@@ -371,6 +539,7 @@ CSV="$OUT_CSV" OUT="$OUT_PNG" \
 	echo "reduce_background_noise=$REDUCE_BACKGROUND_NOISE"
 	echo "stop_noisy_timers=$STOP_NOISY_TIMERS"
 	echo "run_prefix=${RUN_PREFIX[*]}"
+	echo "kernel_activity_delta=$RESULTS_DIR/kernel_activity_delta.txt"
 	echo
 	echo "===== uname -a ====="
 	uname -a
