@@ -333,7 +333,7 @@ Each trial has the same deterministic scenario composition:
 
 Adjusted CPU-cycle results:
 
-| Scenario | Mean | p50 | p95 | p99 | p99.5 | p99.9 |
+| Scenario | Mean | p50 | p95 | p99 | p99.5 | p999 |
 |---|---:|---:|---:|---:|---:|---:|
 | `add_rest_existing_level` | 64.32 | 76 | 114 | 152 | 190 | 418 |
 | `add_rest_new_level` | 100.34 | 76 | 228 | 494 | 608 | 1254 |
@@ -341,13 +341,13 @@ Adjusted CPU-cycle results:
 
 Adjusted elapsed-time results:
 
-| Scenario | Mean ns | p50 ns | p95 ns | p99 ns | p99.5 ns | p99.9 ns |
+| Scenario | Mean ns | p50 ns | p95 ns | p99 ns | p99.5 ns | p999 ns |
 |---|---:|---:|---:|---:|---:|---:|
 | `add_rest_existing_level` | 20.57 | 13 | 31 | 50 | 62 | 203 |
 | `add_rest_new_level` | 31.98 | 20 | 73 | 144 | 193 | 414 |
 | `cancel_order` | 13.78 | 11 | 22 | 33 | 40 | 196 |
 
-Pooled latency distributions (10 trials, 100 bins, x-axis clipped at max(p99.5, p999)):
+Pooled latency distributions (10 trials, 100 bins, x-axis clipped at max(p99.5, p999); stats box and dotted vertical line mark p999):
 
 ![Untuned per-scenario distributions](phase9_untuned_20260610_200842_distributions.png)
 
@@ -363,7 +363,7 @@ The key observations are:
 
 3. `add_rest_new_level` is the main tail-latency source among the measured single-operation paths.
 
-   Its p50 is also 76 cycles, but the distribution has a much longer tail: p95 228 cycles, p99 494 cycles, and p99.9 1254 cycles. This is the path that creates or activates a new price level and interacts with occupancy state.
+   Its p50 is also 76 cycles, but the distribution has a much longer tail: p95 228 cycles, p99 494 cycles, and p999 1254 cycles. This is the path that creates or activates a new price level and interacts with occupancy state.
 
 4. The split between existing-level add and new-level add was necessary.
 
@@ -371,7 +371,7 @@ The key observations are:
 
 5. Extreme maximum values should not be over-interpreted.
 
-   The CSV contains rare large outliers, but the plotted distribution intentionally focuses on the body through p99.5. Those extreme values are likely dominated by system noise, scheduling, virtualization, or interrupt effects rather than deterministic matching-engine work.
+   The CSV contains rare large outliers, but the plotted distribution extends the x-axis to max(p99.5, p999) and annotates p999 explicitly. Values beyond that tail are stacked in the last histogram bar.
 
 ## Linux System-Level Measurement Hygiene
 
