@@ -52,6 +52,14 @@ ITERS="${ITERS:-1}"
 WARMUP_ITERS="${WARMUP_ITERS:-1}"
 SEED="${SEED:-42}"
 
+# --- Linux benchmark isolation (matches setup_remote_nohz_full.sh defaults) ---
+BENCH_CPU="${BENCH_CPU:-2}"
+NUMA_NODE="${NUMA_NODE:-0}"
+ISOLATED_CPUS="${ISOLATED_CPUS:-2,3}"
+HOUSEKEEPING_CPUS="${HOUSEKEEPING_CPUS:-0,1}"
+HOUSEKEEPING_MASK="${HOUSEKEEPING_MASK:-3}"
+REALTIME_PRIORITY="${REALTIME_PRIORITY:-95}"
+
 # --- plot params ---
 PLOT_METRICS="${PLOT_METRICS:-p99_ns,ops_s,cpi,cache_misses_per_op}"
 PLOT_LEVEL="${PLOT_LEVEL:-100}"
@@ -117,7 +125,9 @@ ssh "${SSH_OPTS[@]}" "${SSH_USER}@${SERVER_IP}" \
    REMOTE_ARTIFACTS_DIR='$REMOTE_ARTIFACTS_DIR' REMOTE_TARBALL='$REMOTE_TARBALL' \
    SCENARIOS='$SCENARIOS' METRICS='$METRICS' ORDERS='$ORDERS' LEVELS='$LEVELS' \
    BATCH_SIZES='$BATCH_SIZES' TRIALS='$TRIALS' ITERS='$ITERS' WARMUP_ITERS='$WARMUP_ITERS' \
-   SEED='$SEED' \
+   SEED='$SEED' BENCH_CPU='$BENCH_CPU' NUMA_NODE='$NUMA_NODE' \
+   ISOLATED_CPUS='$ISOLATED_CPUS' HOUSEKEEPING_CPUS='$HOUSEKEEPING_CPUS' \
+   HOUSEKEEPING_MASK='$HOUSEKEEPING_MASK' REALTIME_PRIORITY='$REALTIME_PRIORITY' \
    PLOT_METRICS='$PLOT_METRICS' PLOT_LEVEL='$PLOT_LEVEL' FIXED_ORDERS='$FIXED_ORDERS' \
    INSTALL_DEPS='$INSTALL_DEPS' BACKGROUND='$BACKGROUND' COMPARE_PREFIX='compare' bash -s" <<'ENDSSH'
 set -euo pipefail
@@ -154,7 +164,8 @@ if [[ "$INSTALL_DEPS" == "1" ]]; then
   export DEBIAN_FRONTEND=noninteractive
   apt-get update
   apt-get install -y --no-install-recommends \
-    git ca-certificates build-essential cmake python3 python3-venv python3-pip
+    git ca-certificates build-essential cmake python3 python3-venv python3-pip \
+    numactl util-linux procps
 fi
 
 # ---- 2. Clone / fetch repo ----
@@ -174,6 +185,74 @@ python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 
 mkdir -p "$REMOTE_ARTIFACTS_DIR"
+
+# ---- Linux system-level benchmark isolation ----
+TUNING_LOG="$REMOTE_ARTIFACTS_DIR/system_tuning.log"
+{
+  echo "cmdline=$(cat /proc/cmdline)"
+  echo "bench_cpu=$BENCH_CPU"
+  echo "numa_node=$NUMA_NODE"
+  echo "isolated_cpus=$ISOLATED_CPUS"
+  echo "housekeeping_cpus=$HOUSEKEEPING_CPUS"
+  echo "realtime_priority=$REALTIME_PRIORITY"
+  [[ -r /sys/devices/system/cpu/nohz_full ]] && \
+    echo "nohz_full=$(cat /sys/devices/system/cpu/nohz_full)"
+  [[ -r /sys/devices/system/cpu/isolated ]] && \
+    echo "kernel_isolated=$(cat /sys/devices/system/cpu/isolated)"
+} > "$TUNING_LOG"
+
+for f in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do
+  [[ -w "$f" ]] && echo performance > "$f" 2>/dev/null || true
+done
+
+if command -v systemctl >/dev/null 2>&1; then
+  systemctl stop irqbalance.service 2>/dev/null || true
+  for unit in apt-daily.timer apt-daily-upgrade.timer apt-daily.service \
+    apt-daily-upgrade.service man-db.timer man-db.service \
+    plocate-updatedb.timer plocate-updatedb.service updatedb.timer \
+    updatedb.service fstrim.timer fstrim.service; do
+    systemctl stop "$unit" 2>/dev/null || true
+  done
+fi
+
+sysctl -w kernel.nmi_watchdog=0 >> "$TUNING_LOG" 2>&1 || true
+sysctl -w kernel.watchdog=0 >> "$TUNING_LOG" 2>&1 || true
+sysctl -w kernel.timer_migration=1 >> "$TUNING_LOG" 2>&1 || true
+sysctl -w kernel.sched_rt_runtime_us=-1 >> "$TUNING_LOG" 2>&1 || true
+
+if [[ -w /dev/cpu_dma_latency ]]; then
+  exec 9>/dev/cpu_dma_latency
+  printf '\0\0\0\0' >&9
+  echo "cpu_dma_latency=0us" >> "$TUNING_LOG"
+fi
+
+for f in /sys/devices/virtual/workqueue/cpumask \
+  /sys/devices/virtual/workqueue/*/cpumask; do
+  [[ -w "$f" ]] && echo "$HOUSEKEEPING_MASK" > "$f" 2>/dev/null || true
+done
+
+{
+  echo "irq\tstatus\taffinity_before\taffinity_after\tlabel"
+  while IFS=: read -r irq label; do
+    irq="${irq//[[:space:]]/}"
+    [[ "$irq" =~ ^[0-9]+$ ]] || continue
+    [[ "$label" =~ PCI|MSI|MSIX|virtio|ahci|xhci|nvme|ena|eth|ens|enp ]] || continue
+    affinity="/proc/irq/$irq/smp_affinity_list"
+    [[ -r "$affinity" ]] || continue
+    before="$(cat "$affinity")"
+    if echo "$HOUSEKEEPING_CPUS" > "$affinity" 2>/dev/null; then
+      status="moved"
+    else
+      status="failed"
+    fi
+    printf '%s\t%s\t%s\t%s\t%s\n' \
+      "$irq" "$status" "$before" "$(cat "$affinity")" "${label# }"
+  done < /proc/interrupts
+} > "$REMOTE_ARTIFACTS_DIR/irq_affinity_tuning.tsv"
+
+RUN_PREFIX=(chrt -f "$REALTIME_PRIORITY" numactl \
+  --physcpubind="$BENCH_CPU" --membind="$NUMA_NODE")
+echo "run_prefix=${RUN_PREFIX[*]}" >> "$TUNING_LOG"
 
 # ---- Parse version arrays ----
 IFS=',' read -r -a COMMITS <<< "$COMMITS_STR"
@@ -209,11 +288,11 @@ for ((idx=0; idx<N; idx++)); do
   ctest --test-dir build --output-on-failure | tee "$REMOTE_ARTIFACTS_DIR/ctest_${prefix}.log"
 
   echo "--- Benchmark ($tag) ---"
-  SCENARIOS="$SCENARIOS" METRICS="$METRICS" ORDERS="$ORDERS" LEVELS="$LEVELS" \
-  BATCH_SIZES="$BATCH_SIZES" TRIALS="$TRIALS" ITERS="$ITERS" WARMUP_ITERS="$WARMUP_ITERS" \
-  SEED="$SEED" VERSION_TAG="$tag" \
-  COMMIT_SHA="$sha" OUT_PREFIX="$prefix" \
-    bash benchmark/scripts/run_benchmarks.sh | tee "$REMOTE_ARTIFACTS_DIR/run_${prefix}.log"
+  env SCENARIOS="$SCENARIOS" METRICS="$METRICS" ORDERS="$ORDERS" LEVELS="$LEVELS" \
+    BATCH_SIZES="$BATCH_SIZES" TRIALS="$TRIALS" ITERS="$ITERS" WARMUP_ITERS="$WARMUP_ITERS" \
+    SEED="$SEED" VERSION_TAG="$tag" COMMIT_SHA="$sha" OUT_PREFIX="$prefix" \
+    "${RUN_PREFIX[@]}" bash benchmark/scripts/run_benchmarks.sh \
+    | tee "$REMOTE_ARTIFACTS_DIR/run_${prefix}.log"
 
   LAT_FILES+=("$RES_DIR/${prefix}_latency_raw_trials.csv")
   PMC_FILES+=("$RES_DIR/${prefix}_pmc_raw_trials.csv")
@@ -287,6 +366,12 @@ FIXED_ORDERS="$FIXED_ORDERS" \
   echo "orders=$ORDERS"
   echo "levels=$LEVELS"
   echo "batch_sizes=$BATCH_SIZES"
+  echo "bench_cpu=$BENCH_CPU"
+  echo "numa_node=$NUMA_NODE"
+  echo "isolated_cpus=$ISOLATED_CPUS"
+  echo "housekeeping_cpus=$HOUSEKEEPING_CPUS"
+  echo "realtime_priority=$REALTIME_PRIORITY"
+  echo "run_prefix=${RUN_PREFIX[*]}"
   echo
   echo "===== uname -a ====="
   uname -a
