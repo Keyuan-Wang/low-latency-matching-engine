@@ -14,7 +14,7 @@ template <bool IsAsk>
 class ArraySideBook {
 public:
     static constexpr std::int64_t kDefaultBasePrice = 0;
-    static constexpr std::size_t kDefaultPriceCount = 1u << 16;
+    static constexpr std::size_t kDefaultPriceCount = OccupancyTree::kBitCount;
 
     explicit ArraySideBook(std::int64_t base_price = kDefaultBasePrice, std::size_t price_count = kDefaultPriceCount)
         : base_price_(base_price)

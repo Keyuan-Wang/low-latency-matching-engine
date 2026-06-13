@@ -10,7 +10,7 @@ namespace matching {
 
 class OccupancyTree {
 public:
-    static constexpr std::size_t kBitCount = 65536;
+    static constexpr std::size_t kBitCount = 1u << 12;
     explicit OccupancyTree();
 
     void set(std::size_t bit) noexcept;
@@ -30,7 +30,7 @@ public:
 private:
     static constexpr std::size_t kWordBits = 64;    // size of a word
 
-    std::array<std::uint64_t, 1024 + 16 + 1> levels_;
+    std::array<std::uint64_t, 64 + 1> levels_;
 
     [[gnu::always_inline]] std::size_t word_count(std::size_t bits) const noexcept {
         return (bits + kWordBits - 1) / kWordBits;  // leave for compiler optimization

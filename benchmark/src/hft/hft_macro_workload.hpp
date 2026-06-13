@@ -60,7 +60,6 @@ enum class OccupancySetPath : std::uint8_t {
 	TargetAlreadySet = 1,
 	L1Only = 2,
 	ReachedL2 = 3,
-	ReachedL3 = 4,
 };
 
 inline const char* OccupancySetPathName(OccupancySetPath path) noexcept {
@@ -73,8 +72,6 @@ inline const char* OccupancySetPathName(OccupancySetPath path) noexcept {
 		return "l1_only";
 	case OccupancySetPath::ReachedL2:
 		return "reached_l2";
-	case OccupancySetPath::ReachedL3:
-		return "reached_l3";
 	}
 	return "unknown";
 }
@@ -203,14 +200,12 @@ public:
 private:
 	class ShadowOccupancyTree {
 	public:
-		static constexpr std::size_t kBitCount = 1u << 16;
+		static constexpr std::size_t kBitCount = matching::OccupancyTree::kBitCount;
 		static constexpr std::size_t kL1WordCount = kBitCount / 64;
-		static constexpr std::size_t kL2WordCount = kL1WordCount / 64;
 
 		void reset() noexcept {
 			l1_.fill(0);
-			l2_.fill(0);
-			l3_ = 0;
+			l2_ = 0;
 		}
 
 		[[nodiscard]] OccupancySetPath classify_set(std::size_t bit) const noexcept {
@@ -221,9 +216,7 @@ private:
 				return OccupancySetPath::TargetAlreadySet;
 			}
 			if (l1_word != 0) return OccupancySetPath::L1Only;
-			const std::uint64_t l2_word = l2_[l1_idx / 64];
-			if (l2_word != 0) return OccupancySetPath::ReachedL2;
-			return OccupancySetPath::ReachedL3;
+			return OccupancySetPath::ReachedL2;
 		}
 
 		[[nodiscard]] std::uint16_t l1_popcount(std::size_t bit) const noexcept {
@@ -239,11 +232,7 @@ private:
 			l1_[l1_idx] |= l1_mask;
 			if (!l1_was_empty) return;
 
-			const std::size_t l2_idx = l1_idx / 64;
-			const std::uint64_t l2_mask = 1ULL << (l1_idx & 63);
-			const bool l2_was_empty = l2_[l2_idx] == 0;
-			l2_[l2_idx] |= l2_mask;
-			if (l2_was_empty) l3_ |= 1ULL << l2_idx;
+			l2_ |= 1ULL << l1_idx;
 		}
 
 		void clear(std::size_t bit) noexcept {
@@ -253,32 +242,24 @@ private:
 			l1_[l1_idx] &= ~l1_mask;
 			if (l1_[l1_idx] != 0) return;
 
-			const std::size_t l2_idx = l1_idx / 64;
-			const std::uint64_t l2_mask = 1ULL << (l1_idx & 63);
-			l2_[l2_idx] &= ~l2_mask;
-			if (l2_[l2_idx] == 0) l3_ &= ~(1ULL << l2_idx);
+			l2_ &= ~(1ULL << l1_idx);
 		}
 
 		template <bool IsAsk>
 		[[nodiscard]] std::optional<std::size_t> best() const noexcept {
-			if (l3_ == 0) return std::nullopt;
+			if (l2_ == 0) return std::nullopt;
 			if constexpr (IsAsk) {
-				const std::size_t l2_idx = std::countr_zero(l3_);
-				const std::size_t l1_in_l2 = std::countr_zero(l2_[l2_idx]);
-				const std::size_t l1_idx = l2_idx * 64 + l1_in_l2;
+				const std::size_t l1_idx = std::countr_zero(l2_);
 				return l1_idx * 64 + std::countr_zero(l1_[l1_idx]);
 			} else {
-				const std::size_t l2_idx = 63 - std::countl_zero(l3_);
-				const std::size_t l1_in_l2 = 63 - std::countl_zero(l2_[l2_idx]);
-				const std::size_t l1_idx = l2_idx * 64 + l1_in_l2;
+				const std::size_t l1_idx = 63 - std::countl_zero(l2_);
 				return l1_idx * 64 + (63 - std::countl_zero(l1_[l1_idx]));
 			}
 		}
 
 	private:
 		std::array<std::uint64_t, kL1WordCount> l1_{};
-		std::array<std::uint64_t, kL2WordCount> l2_{};
-		std::uint64_t l3_ = 0;
+		std::uint64_t l2_ = 0;
 	};
 
 	struct RestingMeta {
