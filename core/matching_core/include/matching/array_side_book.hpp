@@ -40,7 +40,7 @@ public:
 
     [[gnu::always_inline]] void prefetch_level(std::uint64_t price) noexcept {
         const std::size_t idx = idx_of(price);
-        __builtin_prefetch(&levels_[idx], 1, 3);
+        __builtin_prefetch(reinterpret_cast<const char*>(&levels_[idx]) + sizeof(PriceLevel) - 1, 1, 3);
     }
 
     PriceLevel* get_or_create(std::int64_t price) noexcept {
