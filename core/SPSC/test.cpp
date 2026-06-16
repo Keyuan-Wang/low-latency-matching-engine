@@ -1,42 +1,114 @@
-#include <thread>
-#include <iostream>
-
 #include "spsc_ring_buffer.hpp"
 
-int main() {
-    SpscRingBuffer<int, 8> queue;
+#include <atomic>
+#include <chrono>
+#include <cstdint>
+#include <cstdlib>
+#include <iostream>
+#include <string>
+#include <thread>
 
-    constexpr int total = 100'000;
+#if defined(__x86_64__) || defined(__i386__) || defined(_M_X64) || defined(_M_IX86)
+#include <immintrin.h>
+#endif
+
+namespace {
+
+constexpr std::size_t k_capacity = 1024;
+
+inline void spin_pause() {
+#if defined(__x86_64__) || defined(__i386__) || defined(_M_X64) || defined(_M_IX86)
+    _mm_pause();
+#else
+    std::this_thread::yield();
+#endif
+}
+
+template <typename Queue>
+void run_benchmark(const char* name, std::uint64_t total) {
+    Queue queue;
+
+    std::atomic<bool> start{false};
+    std::uint64_t checksum = 0;
 
     std::thread producer([&] {
-        for (int value = 1; value <= total; ++value) {
+        while (!start.load(std::memory_order_acquire)) {
+            spin_pause();
+        }
+
+        for (std::uint64_t value = 1; value <= total; ++value) {
             while (!queue.push(value)) {
-                // queue full, retry
+                spin_pause();
             }
         }
     });
 
     std::thread consumer([&] {
-        for (int expected = 1; expected <= total; ++expected) {
-            std::optional<int> value;
-
-            while (!(value = queue.pop())) {
-                // queue empty, retry
-            }
-
-            if (*value != expected) {
-                std::cout << "error: expected "
-                          << expected
-                          << ", got "
-                          << *value
-                          << '\n';
-                return;
-            }
+        while (!start.load(std::memory_order_acquire)) {
+            spin_pause();
         }
 
-        std::cout << "ok\n";
+        for (std::uint64_t count = 0; count < total;) {
+            std::uint64_t value = 0;
+
+            if (queue.pop(value)) {
+                checksum += value;
+                ++count;
+            } else {
+                spin_pause();
+            }
+        }
     });
+
+    const auto begin = std::chrono::steady_clock::now();
+    start.store(true, std::memory_order_release);
 
     producer.join();
     consumer.join();
+
+    const auto end = std::chrono::steady_clock::now();
+    const std::chrono::duration<double> elapsed = end - begin;
+
+    const std::uint64_t expected = total * (total + 1) / 2;
+    const double seconds = elapsed.count();
+    const double ns_per_message = seconds * 1'000'000'000.0 / total;
+    const double million_messages_per_second =
+        static_cast<double>(total) / seconds / 1'000'000.0;
+
+    std::cout << name
+              << " total=" << total
+              << " seconds=" << seconds
+              << " ns/msg=" << ns_per_message
+              << " Mmsg/s=" << million_messages_per_second
+              << " checksum=" << (checksum == expected ? "ok" : "bad")
+              << '\n';
+}
+
+} // namespace
+
+int main(int argc, char** argv) {
+    const std::string mode = argc >= 2 ? argv[1] : "all";
+    const std::uint64_t total =
+        argc >= 3 ? std::strtoull(argv[2], nullptr, 10) : 20'000'000ULL;
+
+    using MutexQueue =
+        llmes::spsc::MutexRingBuffer<std::uint64_t, k_capacity>;
+    using AtomicQueue =
+        llmes::spsc::AtomicRingBuffer<std::uint64_t, k_capacity>;
+    using OptimizedQueue =
+        llmes::spsc::OptimizedAtomicRingBuffer<std::uint64_t, k_capacity>;
+
+    if (mode == "mutex" || mode == "all") {
+        run_benchmark<MutexQueue>("mutex", total);
+    }
+
+    if (mode == "atomic" || mode == "all") {
+        run_benchmark<AtomicQueue>("atomic_seq_cst", total);
+    }
+
+    if (mode == "opt" || mode == "all") {
+        run_benchmark<OptimizedQueue>("atomic_optimized", total);
+    }
+
+    return 0;
 }
