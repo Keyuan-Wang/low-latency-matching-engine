@@ -10,7 +10,7 @@ public:
 
     bool push(const T& value) {
         const std::size_t head = head_.load();
-        const std::size_t next_ = increment(head_);
+        const std::size_t next_ = increment(head);
 
         if (next_ == tail_.load())     return false;   // full
 
