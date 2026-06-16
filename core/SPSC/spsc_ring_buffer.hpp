@@ -33,9 +33,9 @@ public:
         return value;
     }
     
-    bool empty() const { return tail_ == head_; }
+    bool empty() const { return tail_.load() == head_.load(); }
 
-    bool full() const { return increment(head_) == tail_; }
+    bool full() const { return increment(head_.load()) == tail_.load(); }
 
 private:
     static constexpr std::size_t increment(std::size_t index) {
