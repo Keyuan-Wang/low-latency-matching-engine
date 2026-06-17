@@ -16,14 +16,6 @@ namespace {
 
 constexpr std::size_t k_capacity = 1024;
 
-inline void spin_pause() {
-#if defined(__x86_64__) || defined(__i386__) || defined(_M_X64) || defined(_M_IX86)
-    _mm_pause();
-#else
-    std::this_thread::yield();
-#endif
-}
-
 template <typename Queue>
 void run_benchmark(const char* name, std::uint64_t total) {
     Queue queue;
@@ -33,19 +25,19 @@ void run_benchmark(const char* name, std::uint64_t total) {
 
     std::thread producer([&] {
         while (!start.load(std::memory_order_acquire)) {
-            spin_pause();
+            _mm_pause();
         }
 
         for (std::uint64_t value = 1; value <= total; ++value) {
             while (!queue.push(value)) {
-                spin_pause();
+                _mm_pause();
             }
         }
     });
 
     std::thread consumer([&] {
         while (!start.load(std::memory_order_acquire)) {
-            spin_pause();
+            _mm_pause();
         }
 
         for (std::uint64_t count = 0; count < total;) {
@@ -55,7 +47,7 @@ void run_benchmark(const char* name, std::uint64_t total) {
                 checksum += value;
                 ++count;
             } else {
-                spin_pause();
+                _mm_pause();
             }
         }
     });
@@ -92,22 +84,34 @@ int main(int argc, char** argv) {
         argc >= 3 ? std::strtoull(argv[2], nullptr, 10) : 20'000'000ULL;
 
     using MutexQueue =
-        llmes::spsc::MutexRingBuffer<std::uint64_t, k_capacity>;
-    using AtomicQueue =
-        llmes::spsc::AtomicRingBuffer<std::uint64_t, k_capacity>;
-    using OptimizedQueue =
-        llmes::spsc::OptimizedAtomicRingBuffer<std::uint64_t, k_capacity>;
+        llmes::spsc::SpscRingBufferMutex<std::uint64_t, k_capacity>;
+    using AtomicV1Queue =
+        llmes::spsc::SpscRingBufferAtomicV1<std::uint64_t, k_capacity>;
+    using AtomicV2Queue =
+        llmes::spsc::SpscRingBufferAtomicV2<std::uint64_t, k_capacity>;
+    using AtomicV3Queue =
+        llmes::spsc::SpscRingBufferAtomicV3<std::uint64_t, k_capacity>;
+    using AtomicV4Queue =
+        llmes::spsc::SpscRingBufferAtomicV4<std::uint64_t, k_capacity>;
 
     if (mode == "mutex" || mode == "all") {
         run_benchmark<MutexQueue>("mutex", total);
     }
 
-    if (mode == "atomic" || mode == "all") {
-        run_benchmark<AtomicQueue>("atomic_seq_cst", total);
+    if (mode == "atomicv1" || mode == "all") {
+        run_benchmark<AtomicV1Queue>("atomic_v1", total);
     }
 
-    if (mode == "opt" || mode == "all") {
-        run_benchmark<OptimizedQueue>("atomic_optimized", total);
+    if (mode == "atomicv2" || mode == "all") {
+        run_benchmark<AtomicV2Queue>("atomic_v2", total);
+    }
+
+    if (mode == "atomicv3" || mode == "all") {
+        run_benchmark<AtomicV3Queue>("atomic_v3", total);
+    }
+
+    if (mode == "atomicv4" || mode == "all") {
+        run_benchmark<AtomicV4Queue>("atomic_v4", total);
     }
 
     return 0;
