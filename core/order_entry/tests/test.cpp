@@ -172,6 +172,119 @@ void test_codec_control_frames() {
     }
 }
 
+
+void test_response_codec_round_trip() {
+    MessageHeader header;
+    header.sequence_numer = 20;
+    header.session_id = 88;
+
+    {
+        Frame frame{};
+
+        Accepted accepted;
+        accepted.client_order_id = 1001;
+        accepted.order_handle = 777;
+
+        assert(encode_accepted(header, accepted, frame) == kFrameSize);
+
+        MessageHeader decoded_header;
+        assert(decode_header(frame, decoded_header) == DecodeStatus::Ok);
+        assert(validate_response_header(decoded_header) == DecodeStatus::Ok);
+        assert(decoded_header.message_type == MessageType::Accepted);
+        assert(decoded_header.payload_length == kPayloadSize);
+
+        Accepted decoded;
+        assert(decode_accepted(frame, decoded) == DecodeStatus::Ok);
+        assert(decoded.client_order_id == 1001);
+        assert(decoded.order_handle == 777);
+    }
+
+    {
+        Frame frame{};
+
+        Rejected rejected;
+        rejected.client_order_id = 1002;
+        rejected.reason = RejectReason::DuplicateClientOrderId;
+
+        assert(encode_rejected(header, rejected, frame) == kFrameSize);
+
+        MessageHeader decoded_header;
+        assert(decode_header(frame, decoded_header) == DecodeStatus::Ok);
+        assert(validate_response_header(decoded_header) == DecodeStatus::Ok);
+        assert(decoded_header.message_type == MessageType::Rejected);
+
+        Rejected decoded;
+        assert(decode_rejected(frame, decoded) == DecodeStatus::Ok);
+        assert(decoded.client_order_id == 1002);
+        assert(decoded.reason == RejectReason::DuplicateClientOrderId);
+    }
+
+    {
+        Frame frame{};
+
+        Cancelled cancelled;
+        cancelled.client_order_id = 1003;
+        cancelled.order_handle = 778;
+
+        assert(encode_cancelled(header, cancelled, frame) == kFrameSize);
+
+        MessageHeader decoded_header;
+        assert(decode_header(frame, decoded_header) == DecodeStatus::Ok);
+        assert(validate_response_header(decoded_header) == DecodeStatus::Ok);
+        assert(decoded_header.message_type == MessageType::Cancelled);
+
+        Cancelled decoded;
+        assert(decode_cancelled(frame, decoded) == DecodeStatus::Ok);
+        assert(decoded.client_order_id == 1003);
+        assert(decoded.order_handle == 778);
+    }
+
+    {
+        Frame frame{};
+
+        Modified modified;
+        modified.client_order_id = 1004;
+        modified.order_handle = 779;
+
+        assert(encode_modified(header, modified, frame) == kFrameSize);
+
+        MessageHeader decoded_header;
+        assert(decode_header(frame, decoded_header) == DecodeStatus::Ok);
+        assert(validate_response_header(decoded_header) == DecodeStatus::Ok);
+        assert(decoded_header.message_type == MessageType::Modified);
+
+        Modified decoded;
+        assert(decode_modified(frame, decoded) == DecodeStatus::Ok);
+        assert(decoded.client_order_id == 1004);
+        assert(decoded.order_handle == 779);
+    }
+
+    {
+        Frame frame{};
+
+        Trade trade;
+        trade.client_order_id = 1005;
+        trade.order_handle = 780;
+        trade.price = 12345;
+        trade.quantity = 50;
+
+        assert(encode_trade(header, trade, frame) == kFrameSize);
+
+        MessageHeader decoded_header;
+        assert(decode_header(frame, decoded_header) == DecodeStatus::Ok);
+        assert(validate_response_header(decoded_header) == DecodeStatus::Ok);
+        assert(decoded_header.message_type == MessageType::Trade);
+
+        Trade decoded;
+        assert(decode_trade(frame, decoded) == DecodeStatus::Ok);
+        assert(decoded.client_order_id == 1005);
+        assert(decoded.order_handle == 780);
+        assert(decoded.price == 12345);
+        assert(decoded.quantity == 50);
+    }
+}
+
+
 void test_bad_header_validation() {
     {
         auto frame = make_new_order_frame(1);
@@ -369,6 +482,7 @@ int main() {
     test_codec_cancel_order_round_trip();
     test_codec_modify_order_round_trip();
     test_codec_control_frames();
+    test_response_codec_round_trip();
 
     test_bad_header_validation();
 

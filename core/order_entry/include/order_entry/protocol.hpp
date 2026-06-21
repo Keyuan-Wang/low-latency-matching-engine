@@ -107,6 +107,77 @@ struct ModifyOrder {
 };
 
 
+enum class RejectReason : std::uint64_t {
+    None = 0,
+    BadSequence = 1,
+    DuplicateClientOrderId = 2,
+    UnknownClientOrderId = 3,
+    InvalidPrice = 4,
+    InvalidQuantity = 5,
+    UnsupportedMessageType = 6,
+};
+
+struct Accepted {
+    std::uint64_t client_order_id = 0;
+    std::uint64_t order_handle = 0;
+    std::uint64_t reserved1 = 0;
+    std::uint64_t reserved2 = 0;
+
+    static constexpr std::size_t off_client_order_id = 0;
+    static constexpr std::size_t off_order_handle = 8;
+    static constexpr std::size_t off_reserved1 = 16;
+    static constexpr std::size_t off_reserved2 = 24;
+};
+
+struct Rejected {
+    std::uint64_t client_order_id = 0;
+    RejectReason reason = RejectReason::None;
+    std::uint64_t reserved1 = 0;
+    std::uint64_t reserved2 = 0;
+
+    static constexpr std::size_t off_client_order_id = 0;
+    static constexpr std::size_t off_reason = 8;
+    static constexpr std::size_t off_reserved1 = 16;
+    static constexpr std::size_t off_reserved2 = 24;
+};
+
+struct Cancelled {
+    std::uint64_t client_order_id = 0;
+    std::uint64_t order_handle = 0;
+    std::uint64_t reserved1 = 0;
+    std::uint64_t reserved2 = 0;
+
+    static constexpr std::size_t off_client_order_id = 0;
+    static constexpr std::size_t off_order_handle = 8;
+    static constexpr std::size_t off_reserved1 = 16;
+    static constexpr std::size_t off_reserved2 = 24;
+};
+
+struct Modified {
+    std::uint64_t client_order_id = 0;
+    std::uint64_t order_handle = 0;
+    std::uint64_t reserved1 = 0;
+    std::uint64_t reserved2 = 0;
+
+    static constexpr std::size_t off_client_order_id = 0;
+    static constexpr std::size_t off_order_handle = 8;
+    static constexpr std::size_t off_reserved1 = 16;
+    static constexpr std::size_t off_reserved2 = 24;
+};
+
+struct Trade {
+    std::uint64_t client_order_id = 0;
+    std::uint64_t order_handle = 0;
+    std::uint64_t price = 0;
+    std::uint64_t quantity = 0;
+
+    static constexpr std::size_t off_client_order_id = 0;
+    static constexpr std::size_t off_order_handle = 8;
+    static constexpr std::size_t off_price = 16;
+    static constexpr std::size_t off_quantity = 24;
+};
+
+
 // 32-bytes
 struct Hearbeat {
     std::uint64_t reserved1;

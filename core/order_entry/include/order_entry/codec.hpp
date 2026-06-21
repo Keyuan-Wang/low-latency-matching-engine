@@ -174,6 +174,26 @@ inline DecodeStatus validate_header(const MessageHeader& h) {
     return DecodeStatus::Ok;
 }
 
+inline DecodeStatus validate_request_header(const MessageHeader& h) {
+    if (!is_known_request_type(h.message_type))
+        return DecodeStatus::UnknownMessageType;
+
+    if (h.payload_length != kPayloadSize)
+        return DecodeStatus::BadPayloadLength;
+
+    return DecodeStatus::Ok;
+}
+
+inline DecodeStatus validate_response_header(const MessageHeader& h) {
+    if (!is_known_response_type(h.message_type))
+        return DecodeStatus::UnknownMessageType;
+
+    if (h.payload_length != kPayloadSize)
+        return DecodeStatus::BadPayloadLength;
+
+    return DecodeStatus::Ok;
+}
+
 
 
 
@@ -268,6 +288,167 @@ inline DecodeStatus decode_modify_order(std::span<const std::byte> in, ModifyOrd
     out.client_order_id = load_u64_le(in, base + out.off_id);
     out.new_price       = load_u64_le(in, base + out.off_new_price);
     out.new_quantity    = load_u64_le(in, base + out.off_new_quantity);
+
+    return DecodeStatus::Ok;
+}
+
+
+inline std::size_t encode_accepted(const MessageHeader& header, const Accepted& response, std::span<std::byte> out) {
+    MessageHeader h = header;
+    h.message_type = MessageType::Accepted;
+    h.payload_length = kPayloadSize;
+
+    encode_header(h, out);
+
+    const std::size_t base = kHeaderSize;
+    store_u64_le(out, base + Accepted::off_client_order_id, response.client_order_id);
+    store_u64_le(out, base + Accepted::off_order_handle, response.order_handle);
+    store_u64_le(out, base + Accepted::off_reserved1, response.reserved1);
+    store_u64_le(out, base + Accepted::off_reserved2, response.reserved2);
+
+    return kFrameSize;
+}
+
+
+inline DecodeStatus decode_accepted(std::span<const std::byte> in, Accepted& out) {
+    if (in.size() < kFrameSize)
+        return DecodeStatus::NeedMoreData;
+
+    const std::size_t base = kHeaderSize;
+
+    out.client_order_id = load_u64_le(in, base + Accepted::off_client_order_id);
+    out.order_handle    = load_u64_le(in, base + Accepted::off_order_handle);
+    out.reserved1       = load_u64_le(in, base + Accepted::off_reserved1);
+    out.reserved2       = load_u64_le(in, base + Accepted::off_reserved2);
+
+    return DecodeStatus::Ok;
+}
+
+
+inline std::size_t encode_rejected(const MessageHeader& header, const Rejected& response, std::span<std::byte> out) {
+    MessageHeader h = header;
+    h.message_type = MessageType::Rejected;
+    h.payload_length = kPayloadSize;
+
+    encode_header(h, out);
+
+    const std::size_t base = kHeaderSize;
+    store_u64_le(out, base + Rejected::off_client_order_id, response.client_order_id);
+    store_u64_le(out, base + Rejected::off_reason,
+                 static_cast<std::uint64_t>(response.reason));
+    store_u64_le(out, base + Rejected::off_reserved1, response.reserved1);
+    store_u64_le(out, base + Rejected::off_reserved2, response.reserved2);
+
+    return kFrameSize;
+}
+
+
+inline DecodeStatus decode_rejected(std::span<const std::byte> in, Rejected& out) {
+    if (in.size() < kFrameSize)
+        return DecodeStatus::NeedMoreData;
+
+    const std::size_t base = kHeaderSize;
+
+    out.client_order_id = load_u64_le(in, base + Rejected::off_client_order_id);
+    out.reason          = static_cast<RejectReason>(load_u64_le(in, base + Rejected::off_reason));
+    out.reserved1       = load_u64_le(in, base + Rejected::off_reserved1);
+    out.reserved2       = load_u64_le(in, base + Rejected::off_reserved2);
+
+    return DecodeStatus::Ok;
+}
+
+
+inline std::size_t encode_cancelled(const MessageHeader& header, const Cancelled& response, std::span<std::byte> out) {
+    MessageHeader h = header;
+    h.message_type = MessageType::Cancelled;
+    h.payload_length = kPayloadSize;
+
+    encode_header(h, out);
+
+    const std::size_t base = kHeaderSize;
+    store_u64_le(out, base + Cancelled::off_client_order_id, response.client_order_id);
+    store_u64_le(out, base + Cancelled::off_order_handle, response.order_handle);
+    store_u64_le(out, base + Cancelled::off_reserved1, response.reserved1);
+    store_u64_le(out, base + Cancelled::off_reserved2, response.reserved2);
+
+    return kFrameSize;
+}
+
+
+inline DecodeStatus decode_cancelled(std::span<const std::byte> in, Cancelled& out) {
+    if (in.size() < kFrameSize)
+        return DecodeStatus::NeedMoreData;
+
+    const std::size_t base = kHeaderSize;
+
+    out.client_order_id = load_u64_le(in, base + Cancelled::off_client_order_id);
+    out.order_handle    = load_u64_le(in, base + Cancelled::off_order_handle);
+    out.reserved1       = load_u64_le(in, base + Cancelled::off_reserved1);
+    out.reserved2       = load_u64_le(in, base + Cancelled::off_reserved2);
+
+    return DecodeStatus::Ok;
+}
+
+
+inline std::size_t encode_modified(const MessageHeader& header, const Modified& response, std::span<std::byte> out) {
+    MessageHeader h = header;
+    h.message_type = MessageType::Modified;
+    h.payload_length = kPayloadSize;
+
+    encode_header(h, out);
+
+    const std::size_t base = kHeaderSize;
+    store_u64_le(out, base + Modified::off_client_order_id, response.client_order_id);
+    store_u64_le(out, base + Modified::off_order_handle, response.order_handle);
+    store_u64_le(out, base + Modified::off_reserved1, response.reserved1);
+    store_u64_le(out, base + Modified::off_reserved2, response.reserved2);
+
+    return kFrameSize;
+}
+
+
+inline DecodeStatus decode_modified(std::span<const std::byte> in, Modified& out) {
+    if (in.size() < kFrameSize)
+        return DecodeStatus::NeedMoreData;
+
+    const std::size_t base = kHeaderSize;
+
+    out.client_order_id = load_u64_le(in, base + Modified::off_client_order_id);
+    out.order_handle    = load_u64_le(in, base + Modified::off_order_handle);
+    out.reserved1       = load_u64_le(in, base + Modified::off_reserved1);
+    out.reserved2       = load_u64_le(in, base + Modified::off_reserved2);
+
+    return DecodeStatus::Ok;
+}
+
+
+inline std::size_t encode_trade(const MessageHeader& header, const Trade& response, std::span<std::byte> out) {
+    MessageHeader h = header;
+    h.message_type = MessageType::Trade;
+    h.payload_length = kPayloadSize;
+
+    encode_header(h, out);
+
+    const std::size_t base = kHeaderSize;
+    store_u64_le(out, base + Trade::off_client_order_id, response.client_order_id);
+    store_u64_le(out, base + Trade::off_order_handle, response.order_handle);
+    store_u64_le(out, base + Trade::off_price, response.price);
+    store_u64_le(out, base + Trade::off_quantity, response.quantity);
+
+    return kFrameSize;
+}
+
+
+inline DecodeStatus decode_trade(std::span<const std::byte> in, Trade& out) {
+    if (in.size() < kFrameSize)
+        return DecodeStatus::NeedMoreData;
+
+    const std::size_t base = kHeaderSize;
+
+    out.client_order_id = load_u64_le(in, base + Trade::off_client_order_id);
+    out.order_handle    = load_u64_le(in, base + Trade::off_order_handle);
+    out.price           = load_u64_le(in, base + Trade::off_price);
+    out.quantity        = load_u64_le(in, base + Trade::off_quantity);
 
     return DecodeStatus::Ok;
 }
