@@ -30,12 +30,16 @@ After replay and scenario classification, the effective measured buckets can dif
 
 The current answer:
 
-- **15.63 ns/op** on the final HFT macro benchmark.
-- **63.99M order-book ops/s** on Hetzner CCX23.
-- **94.81 instructions/op** after LTO.
+- **14.86 ns/op** on the final HFT macro benchmark.
+- **67.3M order-book ops/s** on Hetzner CCX23.
+- **94.83 instructions/op** after LTO.
 - **4.35 ns/message** for the standalone SPSC transport primitive.
+- **21.10 ns/op** for async SPSC trade-output publication, beating the
+  synchronous vector output path by **9.55%**.
 - A fixed **64-byte binary order-entry protocol** with parser, response codec,
   session validation, and a blocking protocol prototype.
+- The current phase track is intentionally closed at **Phase 14**; no further
+  phases are planned for now.
 - Full experiment history, including rejected ideas, is preserved in [`PROJECT_HISTORY.md`](PROJECT_HISTORY.md).
 
 ---
@@ -67,10 +71,10 @@ That happened repeatedly: custom hash tables, ChunkPool, PMR maps, eager ghost c
 
 | Result | Value |
 |---|---:|
-| Average latency | **15.630 ns/op** |
-| Throughput | **63.99M ops/s** |
-| Cycles/op | **57.25** |
-| Instructions/op | **94.81** |
+| Average latency | **14.860 ns/op** |
+| Throughput | **67.28M ops/s** |
+| Cycles/op | **54.81** |
+| Instructions/op | **94.83** |
 | Branches/op | **17.07** |
 
 Final matching-core artifact:
@@ -157,16 +161,17 @@ This is the compressed story. The full version lives in [`PROJECT_HISTORY.md`](P
 
 | Milestone | Latency | Throughput | What changed |
 |---|---:|---:|---|
-| Phase 1 | 2170 ns/op | 0.47M ops/s | `std::map` + `std::list`, O(N) cancel |
-| Phase 2b | 48.3 ns/op | 20.7M ops/s | O(1) cancel index |
-| Phase 2e | 39.8 ns/op | 25.2M ops/s | Swiss-table hash map |
-| Phase 6a | 29.3 ns/op | 34.1M ops/s | gateway-owned identity, direct handles |
-| Phase 7c | 19.3 ns/op | 51.7M ops/s | hot ring, level pool, targeted inlining |
-| Phase 8b | 17.2 ns/op | 58.1M ops/s | unified array side book |
-| Phase 11 | **15.63 ns/op** | **63.99M ops/s** | LTO and core freeze |
+| Phase 1 | 2167 ns/op | 0.47M ops/s | `std::map` + `std::list`, O(N) cancel |
+| Phase 2b | 47.9 ns/op | 20.9M ops/s | O(1) cancel index |
+| Phase 2e | 39.1 ns/op | 25.6M ops/s | Swiss-table hash map |
+| Phase 6a | 29.2 ns/op | 34.2M ops/s | gateway-owned identity, direct handles |
+| Phase 7c | 19.0 ns/op | 52.5M ops/s | hot ring, level pool, targeted inlining |
+| Phase 8b | 17.2 ns/op | 58.3M ops/s | unified array side book |
+| Phase 11 | **14.86 ns/op** | **67.3M ops/s** | LTO and core freeze |
 
 Phase 12 added SPSC transport. Phase 13 adds the binary order-entry protocol
-boundary and a small session/gateway prototype.
+boundary and a small session/gateway prototype. Phase 14 wires the trade-output
+path through an async SPSC queue and closes the current project phase track.
 
 ---
 
@@ -215,6 +220,7 @@ Important reports:
 - [`report/phase11_lto_pgo_results.md`](report/phase11_lto_pgo_results.md) - final matching-core compiler results
 - [`report/spsc_cloud_benchmark_20260617.md`](report/spsc_cloud_benchmark_20260617.md) - SPSC queue benchmark
 - [`report/order_entry_protocol_codec_design.md`](report/order_entry_protocol_codec_design.md) - binary order-entry protocol and frame parser
+- [`report/order_book/phase14_spsc_trade_output_results.md`](report/order_book/phase14_spsc_trade_output_results.md) - async SPSC trade-output integration
 - [`report/phase8_array_side_book_results.md`](report/phase8_array_side_book_results.md) - array side book results
 - [`report/phase9_per_scenario_benchmark.md`](report/phase9_per_scenario_benchmark.md) - per-scenario and Linux isolation campaign
 
@@ -304,15 +310,25 @@ Done:
 - fixed-size binary order-entry protocol;
 - frame parser, response codec, and session validation;
 - blocking single-connection protocol prototype.
+- async SPSC trade-output benchmark path.
 
 Not production-complete yet:
 
 - no kernel-bypass or production-grade network stack;
 - no multi-client `epoll` gateway;
-- SPSC queue is not wired into matching runtime;
+- no production gateway-to-matching runtime around the SPSC queues;
 - no persistence/recovery;
 - no risk layer;
 - `OrderHandle` is still a raw pool index, not a generation-protected production token.
+
+Phase status:
+
+- **Phase 14 is the final documented phase for now.**
+- The matching core, SPSC primitive, binary protocol boundary, and async
+  trade-output publication experiment are complete enough for this project.
+- Future work may branch into a production gateway, persistence, risk, or
+  kernel-bypass networking, but those are intentionally out of scope for the
+  current phase track.
 
 ---
 
