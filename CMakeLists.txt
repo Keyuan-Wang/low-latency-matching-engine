@@ -14,6 +14,7 @@ if(LLMES_BUILD_TESTS)
   enable_testing()
 endif()
 
+add_subdirectory(core/SPSC)
 add_subdirectory(core/matching_core)
 add_subdirectory(core/order_entry)
 
