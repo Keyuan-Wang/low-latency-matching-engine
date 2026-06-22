@@ -6,10 +6,10 @@
 #include <algorithm>
 #include <cassert>
 
-#include "matching/order_book.hpp"
-#include "matching/price_level.hpp"
-#include "matching/order_pool.hpp"
-#include "matching/types.hpp"
+#include "matching_core/order_book.hpp"
+#include "matching_core/price_level.hpp"
+#include "matching_core/order_pool.hpp"
+#include "matching_core/types.hpp"
 
 namespace llmes::matching_core {
 

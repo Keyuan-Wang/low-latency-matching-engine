@@ -40,7 +40,7 @@ FIXED_ORDERS="${FIXED_ORDERS:-}"
 INSTALL_DEPS="${INSTALL_DEPS:-1}"
 COMPARE_PREFIX="${COMPARE_PREFIX:-ring_size}"
 
-RING_BUFFER_H="${RING_BUFFER_H:-core/matching_core/include/matching/ring_buffer.hpp}"
+RING_BUFFER_H="${RING_BUFFER_H:-core/matching_core/include/matching_core/ring_buffer.hpp}"
 
 if [[ -z "$SERVER_IP" || -z "$REPO_URL" ]]; then
   echo "ERROR: SERVER_IP and REPO_URL are required"
