@@ -8,6 +8,8 @@ target_include_directories(matching_core
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
+target_link_libraries(matching_core PUBLIC spsc)
+
 if(LLMES_BUILD_TESTS)
   add_executable(matching_core_tests
     tests/order_book_test.cpp
