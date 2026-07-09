@@ -15,6 +15,9 @@ target_link_libraries(order_entry_echo_bench_server PRIVATE order_entry)
 add_executable(order_entry_echo_bench_client examples/blocking_echo_bench_client.cpp)
 target_link_libraries(order_entry_echo_bench_client PRIVATE order_entry)
 
+add_executable(order_entry_epoll_server examples/epoll_server.cpp)
+target_link_libraries(order_entry_epoll_server PRIVATE order_entry)
+
 if(LLMES_BUILD_TESTS)
   add_executable(order_entry_tests tests/test.cpp)
   target_link_libraries(order_entry_tests PRIVATE order_entry)
