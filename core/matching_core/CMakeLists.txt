@@ -7,7 +7,7 @@ target_include_directories(matching_core
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
-target_link_libraries(matching_core PUBLIC spsc absl::flat_hash_map)
+target_link_libraries(matching_core PUBLIC absl::flat_hash_map)
 
 if(LLMES_BUILD_TESTS)
   add_executable(matching_core_tests

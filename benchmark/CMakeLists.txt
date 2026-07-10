@@ -12,7 +12,6 @@ add_executable(bench_hft_macro
 	src/hft/bench_hft_macro.cpp
 )
 target_link_libraries(bench_hft_macro PRIVATE benchmark_runner_lib)
-target_link_libraries(bench_hft_macro PRIVATE spsc)
 
 add_executable(bench_hft_macro_scenarios
 	src/hft/bench_hft_macro_scenarios.cpp
