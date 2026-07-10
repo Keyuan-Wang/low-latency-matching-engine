@@ -23,7 +23,6 @@ benchmark/scripts/
 | `benchmarks.sh` | Macro matrix: latency + PMC trials → raw CSVs |
 | `hft_macro_scenarios.sh` | Per-scenario call attribution CSV |
 | `hft_macro_perf_record.sh` | Window-isolated `perf record` + report/annotate |
-| `order_entry_blocking_echo.sh` | Naive blocking TCP echo baseline for 64B order-entry frames |
 
 Examples:
 

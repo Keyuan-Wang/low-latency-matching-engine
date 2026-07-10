@@ -1,3 +1,2 @@
 -Iinclude
--I../SPSC
 -std=c++20

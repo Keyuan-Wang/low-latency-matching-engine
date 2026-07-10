@@ -18,7 +18,6 @@ if (( DRY_RUN == 0 )); then
 fi
 
 SCENARIOS_CSV="${SCENARIOS:-hft_macro}"
-RESULT_MODES_CSV="${RESULT_MODES:-book}"
 METRICS_CSV="${METRICS:-latency,pmc}"
 ORDERS_CSV="${ORDERS:-100000}"
 LEVELS_CSV="${LEVELS:-100}"
@@ -33,7 +32,6 @@ COMMIT_SHA="${COMMIT_SHA:-unknown}"
 OUT_PREFIX="${OUT_PREFIX:-benchmark}"
 
 IFS=',' read -r -a SCENARIOS <<< "$SCENARIOS_CSV"
-IFS=',' read -r -a RESULT_MODES <<< "$RESULT_MODES_CSV"
 IFS=',' read -r -a METRICS <<< "$METRICS_CSV"
 IFS=',' read -r -a ORDERS_ARR <<< "$ORDERS_CSV"
 IFS=',' read -r -a LEVELS_ARR <<< "$LEVELS_CSV"
@@ -74,14 +72,12 @@ bin_for_scenario() {
 total_runs=0
 for trial in $(seq 1 "$TRIALS"); do
 	for scenario in "${SCENARIOS[@]}"; do
-		for result_mode in "${RESULT_MODES[@]}"; do
-			for metric in "${METRICS[@]}"; do
-				for orders in "${ORDERS_ARR[@]}"; do
-					for levels in "${LEVELS_ARR[@]}"; do
-						if (( levels > orders )); then continue; fi
-						for batch_size in "${BATCH_ARR[@]}"; do
-							(( total_runs++ )) || true
-						done
+		for metric in "${METRICS[@]}"; do
+			for orders in "${ORDERS_ARR[@]}"; do
+				for levels in "${LEVELS_ARR[@]}"; do
+					if (( levels > orders )); then continue; fi
+					for batch_size in "${BATCH_ARR[@]}"; do
+						(( total_runs++ )) || true
 					done
 				done
 			done
@@ -94,48 +90,45 @@ for trial in $(seq 1 "$TRIALS"); do
 	for scenario in "${SCENARIOS[@]}"; do
 		BIN="$(bin_for_scenario "$scenario")"
 
-		for result_mode in "${RESULT_MODES[@]}"; do
-			for metric in "${METRICS[@]}"; do
-				for orders in "${ORDERS_ARR[@]}"; do
-					for levels in "${LEVELS_ARR[@]}"; do
-						if (( levels > orders )); then continue; fi
-						for batch_size in "${BATCH_ARR[@]}"; do
-							(( current_run++ )) || true
-							if [[ "$metric" == "latency" ]]; then
-								out_file="$LAT_CSV"
-							elif [[ "$metric" == "pmc" ]]; then
-								out_file="$PMC_CSV"
-							else
-								echo "unknown metric: $metric" >&2
-								exit 2
-							fi
+		for metric in "${METRICS[@]}"; do
+			for orders in "${ORDERS_ARR[@]}"; do
+				for levels in "${LEVELS_ARR[@]}"; do
+					if (( levels > orders )); then continue; fi
+					for batch_size in "${BATCH_ARR[@]}"; do
+						(( current_run++ )) || true
+						if [[ "$metric" == "latency" ]]; then
+							out_file="$LAT_CSV"
+						elif [[ "$metric" == "pmc" ]]; then
+							out_file="$PMC_CSV"
+						else
+							echo "unknown metric: $metric" >&2
+							exit 2
+						fi
 
-							printf "[%3d/%3d] trial=%-2d scenario=%-15s mode=%-14s metric=%-7s orders=%-6s levels=%-4s batch=%-3s " \
-								"$current_run" "$total_runs" "$trial" "$scenario" "$result_mode" "$metric" "$orders" "$levels" "$batch_size"
+						printf "[%3d/%3d] trial=%-2d scenario=%-15s metric=%-7s orders=%-6s levels=%-4s batch=%-3s " \
+							"$current_run" "$total_runs" "$trial" "$scenario" "$metric" "$orders" "$levels" "$batch_size"
 
-							if (( DRY_RUN == 1 )); then
-								echo "(dry-run)"
+						if (( DRY_RUN == 1 )); then
+							echo "(dry-run)"
+						else
+							if "$BIN" \
+								--metric "$metric" \
+								--trial-id "$trial" \
+								--orders "$orders" \
+								--levels "$levels" \
+								--batch-size "$batch_size" \
+								--warmup-iters "$WARMUP_ITERS" \
+								--iters "$ITERS" \
+								--seed "$SEED" \
+								--version-tag "$VERSION_TAG" \
+								--commit-sha "$COMMIT_SHA" \
+								--out "$out_file" > /dev/null; then
+								echo "ok"
 							else
-								if "$BIN" \
-									--result-mode "$result_mode" \
-									--metric "$metric" \
-									--trial-id "$trial" \
-									--orders "$orders" \
-									--levels "$levels" \
-									--batch-size "$batch_size" \
-									--warmup-iters "$WARMUP_ITERS" \
-									--iters "$ITERS" \
-									--seed "$SEED" \
-									--version-tag "$VERSION_TAG" \
-									--commit-sha "$COMMIT_SHA" \
-									--out "$out_file" > /dev/null; then
-									echo "ok"
-								else
-									echo "FAIL"
-									exit 1
-								fi
+								echo "FAIL"
+								exit 1
 							fi
-						done
+						fi
 					done
 				done
 			done

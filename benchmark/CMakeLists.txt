@@ -18,10 +18,8 @@ add_executable(bench_hft_macro_scenarios
 )
 target_link_libraries(bench_hft_macro_scenarios PRIVATE benchmark_runner_lib)
 
-if(LLMES_BUILD_TESTS)
-	add_executable(benchmark_smoke_test
-		tests/benchmark_smoke_test.cpp
-	)
-	target_link_libraries(benchmark_smoke_test PRIVATE benchmark_runner_lib)
-	add_test(NAME benchmark_smoke_test COMMAND benchmark_smoke_test)
-endif()
+# --- Smoke test ---
+add_executable(benchmark_smoke_test
+	tests/benchmark_smoke_test.cpp
+)
+target_link_libraries(benchmark_smoke_test PRIVATE benchmark_runner_lib)

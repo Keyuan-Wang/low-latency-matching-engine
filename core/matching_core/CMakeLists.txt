@@ -1,4 +1,5 @@
 add_library(matching_core
+  src/order_book.cpp
   src/occupancy_tree.cpp
 )
 
@@ -6,8 +7,6 @@ target_include_directories(matching_core
   PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
-
-target_link_libraries(matching_core PUBLIC absl::flat_hash_map)
 
 if(LLMES_BUILD_TESTS)
   add_executable(matching_core_tests

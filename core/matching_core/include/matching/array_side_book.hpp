@@ -8,7 +8,7 @@
 #include <vector>
 
 
-namespace llmes::matching_core {
+namespace matching {
 
 template <bool IsAsk>
 class ArraySideBook {
@@ -125,4 +125,4 @@ private:
 
 };
 
-}   // namespace llmes::matching_core
+}   // namespace matching

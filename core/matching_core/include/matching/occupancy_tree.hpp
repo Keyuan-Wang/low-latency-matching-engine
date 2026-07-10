@@ -6,7 +6,7 @@
 #include <array>
 
 
-namespace llmes::matching_core {
+namespace matching {
 
 class OccupancyTree {
 public:
@@ -53,4 +53,4 @@ private:
 
 };
 
-}   // namespace llmes::matching_core
+}   // namespace matching

@@ -2,7 +2,6 @@
 
 #include "benchmark_runner.hpp"
 #include "bench_common.hpp"
-#include "match_result_buffer.hpp"
 
 #include <algorithm>
 #include <array>
@@ -15,7 +14,6 @@
 #include <memory>
 #include <optional>
 #include <unordered_map>
-#include <type_traits>
 #include <vector>
 
 namespace benchmark_runner::hft {
@@ -81,11 +79,20 @@ inline const char* OccupancySetPathName(OccupancySetPath path) noexcept {
 inline constexpr std::uint64_t kNoPreviousLevelTouch =
 		std::numeric_limits<std::uint64_t>::max();
 
+// Same sentinel as kNoPreviousLevelTouch, but for the order-pool slot dimension:
+// marks the first time a given pool slot is acquired by a measured add.
+inline constexpr std::uint64_t kNoPreviousSlotTouch =
+		std::numeric_limits<std::uint64_t>::max();
+
 struct PendingAttribution {
 	OccupancySetPath occupancy_set_path = OccupancySetPath::NotApplicable;
 	std::uint16_t occupancy_l1_popcount_before = 0;
 	std::uint8_t price_mod8 = 0;
 	std::uint64_t level_reuse_distance_ops = kNoPreviousLevelTouch;
+	// Ops since the order-pool slot this add will acquire was last acquired.
+	// PriceLevel reuse (above) and order-pool-slot reuse are decoupled: a level
+	// can be hot while the slot the new order lands in is cold, and vice versa.
+	std::uint64_t order_slot_reuse_distance_ops = kNoPreviousSlotTouch;
 };
 
 // ------------------------------------------------------------------
@@ -100,12 +107,13 @@ struct PendingOp {
 	MacroScenario scenario = MacroScenario::Unmeasured;
 
 	// kLimitAdd / kModify
-	llmes::matching_core::Side side = llmes::matching_core::Side::Buy;
+	matching::Side side = matching::Side::Buy;
 	std::int64_t price = 0;
 	std::uint64_t qty = 0;
 
 	// kCancel / kModify
 	std::uint64_t target_id = 0;
+	matching::OrderHandle target_handle{matching::kInvalidHandle};
 
 	// kMarket
 	std::uint64_t market_qty = 0;
@@ -114,127 +122,14 @@ struct PendingOp {
 	std::uint64_t oid = 0;
 };
 
-struct AsyncTradeEvent {
-	std::size_t record_index = 0;
-	llmes::matching_core::Trade trade{};
-};
-
-template <typename Queue>
-class AsyncSpscTradeSink {
-public:
-	AsyncSpscTradeSink(Queue& queue, const std::size_t& current_record_index) noexcept
-			: queue_(queue), current_record_index_(current_record_index) {}
-
-	[[gnu::always_inline]] inline void push_trade(std::uint64_t taker_id,
-																								std::uint64_t maker_id,
-																								std::int64_t price,
-																								std::uint64_t quantity) {
-		const AsyncTradeEvent event{
-				current_record_index_,
-				llmes::matching_core::Trade{taker_id, maker_id, price, quantity},
-		};
-		while (!queue_.push(event)) {
-		}
-	}
-
-	[[gnu::always_inline]] inline void
-	pop_trade(std::vector<llmes::matching_core::Trade>& out) noexcept {
-		out.clear();
-	}
-
-private:
-	Queue& queue_;
-	const std::size_t& current_record_index_;
-};
-
-template <typename Sink>
-class SinkResources;
-
-template <>
-class SinkResources<llmes::matching_core::NullTradeSink> {
-public:
-	[[nodiscard]] llmes::matching_core::NullTradeSink make_sink() noexcept {
-		return {};
-	}
-
-	[[gnu::always_inline]] inline void
-	drain(std::vector<llmes::matching_core::Trade>& out) noexcept {
-		out.clear();
-	}
-};
-
-template <>
-class SinkResources<llmes::matching_core::VectorTradeSink> {
-public:
-	[[nodiscard]] llmes::matching_core::VectorTradeSink make_sink() noexcept {
-		return llmes::matching_core::VectorTradeSink{trades_};
-	}
-
-	[[gnu::always_inline]] inline void
-	drain(std::vector<llmes::matching_core::Trade>& out) noexcept {
-		out.clear();
-		out.swap(trades_);
-	}
-
-private:
-	std::vector<llmes::matching_core::Trade> trades_;
-};
-
-template <typename Queue>
-class SinkResources<llmes::matching_core::SpscTradeSink<Queue>> {
-public:
-	[[nodiscard]] llmes::matching_core::SpscTradeSink<Queue> make_sink() noexcept {
-		return llmes::matching_core::SpscTradeSink<Queue>{queue_};
-	}
-
-	[[gnu::always_inline]] inline void
-	drain(std::vector<llmes::matching_core::Trade>& out) {
-		out.clear();
-		llmes::matching_core::Trade trade{};
-		while (queue_.pop(trade)) {
-			out.push_back(trade);
-		}
-	}
-
-private:
-	Queue queue_;
-};
-
-template <typename Queue>
-class SinkResources<AsyncSpscTradeSink<Queue>> {
-public:
-	[[nodiscard]] AsyncSpscTradeSink<Queue> make_sink() noexcept {
-		return AsyncSpscTradeSink<Queue>{queue_, current_record_index_};
-	}
-
-	[[gnu::always_inline]] inline void set_record_index(std::size_t record_index) noexcept {
-		current_record_index_ = record_index;
-	}
-
-	[[gnu::always_inline]] inline bool pop_event(AsyncTradeEvent& event) {
-		return queue_.pop(event);
-	}
-
-	[[gnu::always_inline]] inline void
-	drain(std::vector<llmes::matching_core::Trade>& out) noexcept {
-		out.clear();
-	}
-
-private:
-	Queue queue_;
-	std::size_t current_record_index_ = 0;
-};
-
-template <bool EnableAttribution = false,
-					typename Sink = llmes::matching_core::NullTradeSink>
+template <bool EnableAttribution = false>
 class HftMacroWorkload final {
 public:
 	void Setup(const Args& args, std::uint64_t iter_idx) {
 		const std::uint64_t warmup_events = 500'000;
 		const std::uint64_t pool = warmup_events + args.batch_size + 50000;
 
-		book_ = make_generation_book(pool);
-		timed_book_.reset();
+		book_ = std::make_unique<matching::OrderBook>(pool);
 		event_rng_ = SplitMix64(args.seed + args.trial_id * 1000003ULL +
 														iter_idx * 9973ULL);
 		param_rng_ = SplitMix64(args.seed * 1337ULL + args.trial_id * 500009ULL +
@@ -245,6 +140,7 @@ public:
 
 		// --- Warmup (untimed, uses the old generate-execute-track loop) ---
 		resting_orders_.clear();
+		book_handles_.clear();
 		resting_ids_.clear();
 		ask_level_counts_.clear();
 		bid_level_counts_.clear();
@@ -261,11 +157,11 @@ public:
 
 		update_best_prices();
 		const auto base_resting_orders = resting_orders_;
-		book_ = build_generation_book_from_tracking(pool);
+		book_ = build_book_from_tracking(pool, book_handles_);
 		if constexpr (EnableAttribution) reset_attribution_state();
 
 		// --- Pre-generate the measured batch ---
-		// All event params are decided now. Execute() just calls
+		// All event params and handles are decided now. Execute() just calls
 		// the requested OrderBook operation.
 		pending_.clear();
 		pregen_queue_.clear();
@@ -282,45 +178,27 @@ public:
 		}
 
 		resting_orders_ = base_resting_orders;
-		book_ = build_generation_book_from_tracking(pool);
+		book_ = build_book_from_tracking(pool, book_handles_);
 
-		timed_book_ = build_timed_book_from_tracking(pool);
-		book_.reset();
+		// Order-pool-slot reuse distance is collected by an untimed dry-run replay
+		// of the finalized pending batch (see annotate_order_slot_reuse). It mutates
+		// the book, so we rebuild one final time for the timed run. The rebuild is
+		// deterministic, so the slot each add lands on during the timed replay is
+		// bit-identical to the slot observed during the dry run.
+		if constexpr (EnableAttribution) {
+			annotate_order_slot_reuse();
+			resting_orders_ = base_resting_orders;
+			book_ = build_book_from_tracking(pool, book_handles_);
+		}
 	}
 
 	bool Execute(std::size_t idx, std::uint64_t& ok) {
-		(void)execute_pending(idx, ok);
-		if constexpr (!std::is_same_v<Sink, llmes::matching_core::NullTradeSink>) {
-			drain_timed_trades();
-		}
+		execute_pending(idx, ok);
 		return true;
-	}
-
-	bool ExecuteAndCollect(std::size_t idx, std::uint64_t& ok,
-												 MatchResultBuffer& results) {
-		const auto result = execute_pending(idx, ok);
-		const std::size_t record_index = results.append_result(result);
-		drain_timed_trades();
-		results.attach_trades(record_index, timed_trades_);
-		return true;
-	}
-
-	bool ExecuteAndCollectAsync(std::size_t idx, std::uint64_t& ok,
-															MatchResultBuffer& results) {
-		const std::size_t record_index = results.append_result({});
-		timed_sink_.set_record_index(record_index);
-		const auto result = execute_pending(idx, ok);
-		results.set_result(record_index, result);
-		return true;
-	}
-
-	[[gnu::always_inline]] inline bool PopAsyncTrade(AsyncTradeEvent& event) {
-		return timed_sink_.pop_event(event);
 	}
 
 	void Teardown() {
 		book_.reset();
-		timed_book_.reset();
 	}
 
 	[[nodiscard]] std::size_t size() const noexcept { return pending_.size(); }
@@ -340,13 +218,9 @@ public:
 	}
 
 private:
-	using GenerationBook =
-			llmes::matching_core::OrderBook<llmes::matching_core::VectorTradeSink>;
-	using TimedBook = llmes::matching_core::OrderBook<Sink>;
-
 	class ShadowOccupancyTree {
 	public:
-		static constexpr std::size_t kBitCount = llmes::matching_core::OccupancyTree::kBitCount;
+		static constexpr std::size_t kBitCount = matching::OccupancyTree::kBitCount;
 		static constexpr std::size_t kL1WordCount = kBitCount / 64;
 
 		void reset() noexcept {
@@ -409,17 +283,17 @@ private:
 	};
 
 	struct RestingMeta {
-		llmes::matching_core::Side side = llmes::matching_core::Side::Buy;
+		matching::Side side = matching::Side::Buy;
 		std::int64_t price = 0;
 		std::uint64_t qty = 0;
 	};
 
-	std::unique_ptr<GenerationBook> book_;
-	SinkResources<Sink> timed_sink_;
-	std::unique_ptr<TimedBook> timed_book_;
-	std::vector<llmes::matching_core::Trade> generation_trade_storage_;
-	std::vector<llmes::matching_core::Trade> generation_trades_;
-	std::vector<llmes::matching_core::Trade> timed_trades_;
+	struct HandleMeta {
+		matching::OrderHandle handle = matching::kInvalidHandle;
+		std::uint64_t qty = 0;
+	};
+
+	std::unique_ptr<matching::OrderBook> book_;
 	SplitMix64 event_rng_{42};
 	SplitMix64 param_rng_{42};
 	std::uint64_t id_counter_ = 0;
@@ -427,6 +301,7 @@ private:
 	// Resting-order tracking, used only for cancel-target selection during
 	// warmup and pre-generation. It is not touched by the measured replay.
 	std::unordered_map<std::uint64_t, RestingMeta> resting_orders_;
+	std::unordered_map<std::uint64_t, HandleMeta> book_handles_;
 	std::vector<std::uint64_t> resting_ids_;
 	std::map<std::int64_t, std::uint64_t, std::less<>> ask_level_counts_;
 	std::map<std::int64_t, std::uint64_t, std::greater<>> bid_level_counts_;
@@ -445,42 +320,18 @@ private:
 	std::unordered_map<std::int64_t, std::int64_t> ask_last_level_touch_;
 	std::uint64_t attribution_op_index_ = 0;
 
-	[[nodiscard]] ShadowOccupancyTree& shadow_tree(llmes::matching_core::Side side) noexcept {
-		return side == llmes::matching_core::Side::Buy ? bid_shadow_tree_ : ask_shadow_tree_;
+	[[nodiscard]] ShadowOccupancyTree& shadow_tree(matching::Side side) noexcept {
+		return side == matching::Side::Buy ? bid_shadow_tree_ : ask_shadow_tree_;
 	}
 
 	[[nodiscard]] std::unordered_map<std::int64_t, std::int64_t>&
-	last_level_touch(llmes::matching_core::Side side) noexcept {
-		return side == llmes::matching_core::Side::Buy ? bid_last_level_touch_
+	last_level_touch(matching::Side side) noexcept {
+		return side == matching::Side::Buy ? bid_last_level_touch_
 																	 : ask_last_level_touch_;
 	}
 
 	[[nodiscard]] static std::size_t price_index(std::int64_t price) noexcept {
 		return static_cast<std::size_t>(price);
-	}
-
-	[[nodiscard]] std::unique_ptr<GenerationBook>
-	make_generation_book(std::size_t pool_capacity) {
-		generation_trade_storage_.clear();
-		generation_trades_.clear();
-		return std::make_unique<GenerationBook>(
-				llmes::matching_core::VectorTradeSink{generation_trade_storage_},
-				pool_capacity);
-	}
-
-	[[nodiscard]] std::unique_ptr<TimedBook>
-	make_timed_book(std::size_t pool_capacity) {
-		timed_trades_.clear();
-		return std::make_unique<TimedBook>(timed_sink_.make_sink(), pool_capacity);
-	}
-
-	[[gnu::always_inline]] inline void drain_generation_trades() noexcept {
-		generation_trades_.clear();
-		generation_trades_.swap(generation_trade_storage_);
-	}
-
-	[[gnu::always_inline]] inline void drain_timed_trades() {
-		timed_sink_.drain(timed_trades_);
 	}
 
 	void reset_attribution_state() {
@@ -501,7 +352,7 @@ private:
 	}
 
 	void annotate_level_reuse(PendingAttribution& attribution,
-			llmes::matching_core::Side side, std::int64_t price) {
+			matching::Side side, std::int64_t price) {
 		if constexpr (!EnableAttribution) return;
 		attribution.price_mod8 = static_cast<std::uint8_t>(
 				(static_cast<std::uint64_t>(price) & 7ULL));
@@ -518,7 +369,7 @@ private:
 	}
 
 	void annotate_add(PendingAttribution& attribution,
-			llmes::matching_core::Side side, std::int64_t price) {
+			matching::Side side, std::int64_t price) {
 		if constexpr (!EnableAttribution) return;
 		annotate_level_reuse(attribution, side, price);
 		auto& tree = shadow_tree(side);
@@ -527,25 +378,70 @@ private:
 		attribution.occupancy_l1_popcount_before = tree.l1_popcount(idx);
 	}
 
-	void touch_level(llmes::matching_core::Side side, std::int64_t price) {
+	void touch_level(matching::Side side, std::int64_t price) {
 		if constexpr (!EnableAttribution) return;
 		last_level_touch(side)[price] =
 				static_cast<std::int64_t>(attribution_op_index_);
 	}
 
-	void set_shadow_level(llmes::matching_core::Side side, std::int64_t price) noexcept {
+	// Untimed dry-run: replay the finalized pending batch against a freshly built
+	// book (identical to the one the timed run will use), reading back the pool
+	// slot each resting add acquires. Distance is measured in ops since that slot
+	// was last acquired by a limit add. Every op is replayed (cancel/modify/market
+	// too) so the free-list evolves exactly as it will during the timed replay;
+	// only limit adds read a handle and record a distance.
+	void annotate_order_slot_reuse() {
+		if constexpr (!EnableAttribution) return;
+		std::unordered_map<matching::OrderHandle, std::int64_t> last_slot_acquire_op;
+		last_slot_acquire_op.reserve(pending_.size());
+
+		for (std::size_t i = 0; i < pending_.size(); ++i) {
+			const auto& op = pending_[i];
+			const std::int64_t current = static_cast<std::int64_t>(i);
+			switch (op.type) {
+			case PendingOp::kLimitAdd: {
+				const auto res =
+						book_->add_limit_order(op.oid, op.side, op.price, op.qty, op.oid);
+				// A resting add is the only case that acquires a durable slot.
+				if (res.code == matching::ErrorCode::Success &&
+						res.remaining_quantity > 0 &&
+						res.handle != matching::kInvalidHandle) {
+					const auto it = last_slot_acquire_op.find(res.handle);
+					pending_attribution_[i].order_slot_reuse_distance_ops =
+							(it == last_slot_acquire_op.end())
+									? kNoPreviousSlotTouch
+									: static_cast<std::uint64_t>(current - it->second);
+					last_slot_acquire_op[res.handle] = current;
+				}
+				break;
+			}
+			case PendingOp::kCancel:
+				(void)book_->cancel_order(op.target_handle);
+				break;
+			case PendingOp::kModify:
+				(void)book_->modify_order(op.target_handle, op.side, op.price, op.qty,
+																	op.oid);
+				break;
+			case PendingOp::kMarket:
+				(void)book_->add_market_order(op.oid, op.side, op.market_qty, op.oid);
+				break;
+			}
+		}
+	}
+
+	void set_shadow_level(matching::Side side, std::int64_t price) noexcept {
 		if constexpr (!EnableAttribution) return;
 		shadow_tree(side).set(price_index(price));
 	}
 
-	void clear_shadow_level(llmes::matching_core::Side side, std::int64_t price) noexcept {
+	void clear_shadow_level(matching::Side side, std::int64_t price) noexcept {
 		if constexpr (!EnableAttribution) return;
 		shadow_tree(side).clear(price_index(price));
 	}
 
 	[[nodiscard]] std::optional<std::int64_t> shadow_best_price(
-			llmes::matching_core::Side side) const noexcept {
-		if (side == llmes::matching_core::Side::Buy) {
+			matching::Side side) const noexcept {
+		if (side == matching::Side::Buy) {
 			const auto best = bid_shadow_tree_.template best<false>();
 			return best ? std::optional<std::int64_t>(*best) : std::nullopt;
 		}
@@ -554,22 +450,22 @@ private:
 	}
 
 	[[nodiscard]] static bool shadow_can_cross(
-			llmes::matching_core::Side taker_side,
+			matching::Side taker_side,
 			std::int64_t limit_price,
 			std::int64_t best_opposite_price) noexcept {
-		return taker_side == llmes::matching_core::Side::Buy
+		return taker_side == matching::Side::Buy
 						 ? limit_price >= best_opposite_price
 						 : limit_price <= best_opposite_price;
 	}
 
 	void apply_matching_attribution(
-			llmes::matching_core::Side taker_side,
+			matching::Side taker_side,
 			std::optional<std::int64_t> limit_price,
-			const std::vector<llmes::matching_core::Trade>& trades) {
+			const std::vector<matching::Trade>& trades) {
 		if constexpr (!EnableAttribution) return;
-		const llmes::matching_core::Side maker_side = taker_side == llmes::matching_core::Side::Buy
-																	 ? llmes::matching_core::Side::Sell
-																	 : llmes::matching_core::Side::Buy;
+		const matching::Side maker_side = taker_side == matching::Side::Buy
+																	 ? matching::Side::Sell
+																	 : matching::Side::Buy;
 		for (const auto& trade : trades) {
 			touch_level(maker_side, trade.price);
 		}
@@ -632,8 +528,8 @@ private:
 	void pending_limit_add() {
 		PendingOp op;
 		op.type = PendingOp::kLimitAdd;
-		op.side = (param_rng_.next() % 2 == 0) ? llmes::matching_core::Side::Buy
-																					 : llmes::matching_core::Side::Sell;
+		op.side = (param_rng_.next() % 2 == 0) ? matching::Side::Buy
+																					 : matching::Side::Sell;
 
 		std::int64_t const ref = (best_ask_ > 0) ? best_ask_ : 1000;
 		int offset = 0;
@@ -643,7 +539,7 @@ private:
 			r >>= 8;
 		}
 		if (offset == 0) offset = 1;
-		op.price = (op.side == llmes::matching_core::Side::Buy)
+		op.price = (op.side == matching::Side::Buy)
 									 ? std::max<std::int64_t>(1, ref - offset - 1)
 									 : ref + offset;
 
@@ -658,8 +554,7 @@ private:
 
 		auto const res =
 				book_->add_limit_order(op.oid, op.side, op.price, op.qty, op.oid);
-		drain_generation_trades();
-		if (res.code == llmes::matching_core::ErrorCode::Success && generation_trades_.empty() &&
+		if (res.code == matching::ErrorCode::Success && res.trades.empty() &&
 				res.remaining_quantity > 0) {
 			op.scenario = level_existed_before
 												? MacroScenario::AddRestExistingLevel
@@ -667,11 +562,12 @@ private:
 		} else {
 			op.scenario = MacroScenario::Unmeasured;
 		}
-		apply_trade_fills(generation_trades_);
-		apply_matching_attribution(op.side, op.price, generation_trades_);
-		if (res.code == llmes::matching_core::ErrorCode::Success &&
-			res.remaining_quantity > 0) {
+		apply_trade_fills(res.trades, &book_handles_);
+		apply_matching_attribution(op.side, op.price, res.trades);
+		if (res.code == matching::ErrorCode::Success &&
+				res.remaining_quantity > 0) {
 			track_add_predicted(op.oid, op.side, op.price, res.remaining_quantity);
+			book_handles_[op.oid] = HandleMeta{res.handle, res.remaining_quantity};
 			set_shadow_level(op.side, op.price);
 			touch_level(op.side, op.price);
 		}
@@ -690,12 +586,20 @@ private:
 			std::uint64_t const target = select_cancel_target();
 			if (target == 0) break;
 
-			auto const code = book_->cancel_order(target);
-			drain_generation_trades();
-			if (code != llmes::matching_core::ErrorCode::Success) {
+			auto book_handle_it = book_handles_.find(target);
+			if (book_handle_it == book_handles_.end()) {
 				track_remove_predicted(target);
 				continue;
 			}
+
+			auto const code = book_->cancel_order(book_handle_it->second.handle);
+			if (code != matching::ErrorCode::Success) {
+				book_handles_.erase(book_handle_it);
+				track_remove_predicted(target);
+				continue;
+			}
+			matching::OrderHandle const target_handle = book_handle_it->second.handle;
+			book_handles_.erase(book_handle_it);
 
 			PendingOp op;
 			PendingAttribution attribution;
@@ -710,6 +614,7 @@ private:
 				}
 			}
 			op.target_id = target;
+			op.target_handle = target_handle;
 			op.oid = 0;
 			annotate_level_reuse(attribution, op.side, op.price);
 			pending_.push_back(op);
@@ -747,16 +652,25 @@ private:
 
 		PendingOp op;
 		op.type = PendingOp::kModify;
-		op.side = (param_rng_.next() % 2 == 0) ? llmes::matching_core::Side::Buy
-																					 : llmes::matching_core::Side::Sell;
+		op.side = (param_rng_.next() % 2 == 0) ? matching::Side::Buy
+																					 : matching::Side::Sell;
 		op.price = new_price;
 		op.qty = new_qty;
 		op.target_id = target;
 		op.oid = id_counter_++;
 
-		auto const res = book_->modify_order(target, op.side, op.price, op.qty, op.oid);
-		drain_generation_trades();
-		if (res.code != llmes::matching_core::ErrorCode::Success) {
+		auto book_handle_it = book_handles_.find(op.target_id);
+		if (book_handle_it == book_handles_.end()) {
+			track_remove_predicted(target);
+			pending_limit_add();
+			return;
+		}
+		op.target_handle = book_handle_it->second.handle;
+
+		auto const res = book_->modify_order(book_handle_it->second.handle, op.side,
+																				 op.price, op.qty, op.oid);
+		if (res.code != matching::ErrorCode::Success) {
+			book_handles_.erase(book_handle_it);
 			track_remove_predicted(target);
 			pending_limit_add();
 			return;
@@ -764,11 +678,13 @@ private:
 
 		op.scenario = MacroScenario::Unmeasured;
 		touch_level(old_meta.side, old_meta.price);
+		book_handles_.erase(book_handle_it);
 		track_remove_predicted(target);
-		apply_trade_fills(generation_trades_);
-		apply_matching_attribution(op.side, op.price, generation_trades_);
+		apply_trade_fills(res.trades, &book_handles_);
+		apply_matching_attribution(op.side, op.price, res.trades);
 		if (res.remaining_quantity > 0) {
 			track_add_predicted(target, op.side, op.price, res.remaining_quantity);
+			book_handles_[target] = HandleMeta{res.handle, res.remaining_quantity};
 			set_shadow_level(op.side, op.price);
 			touch_level(op.side, op.price);
 		}
@@ -786,8 +702,8 @@ private:
 		PendingOp op;
 		op.type = PendingOp::kMarket;
 		op.scenario = MacroScenario::Unmeasured;
-		op.side = (param_rng_.next() % 2 == 0) ? llmes::matching_core::Side::Buy
-																					 : llmes::matching_core::Side::Sell;
+		op.side = (param_rng_.next() % 2 == 0) ? matching::Side::Buy
+																					 : matching::Side::Sell;
 
 		int const mroll = static_cast<int>(param_rng_.next() % 100);
 		if (mroll < 85) {
@@ -802,9 +718,8 @@ private:
 		op.oid = id_counter_++;
 		auto const res =
 				book_->add_market_order(op.oid, op.side, op.market_qty, op.oid);
-		drain_generation_trades();
-		apply_trade_fills(generation_trades_);
-		apply_matching_attribution(op.side, std::nullopt, generation_trades_);
+		apply_trade_fills(res.trades, &book_handles_);
+		apply_matching_attribution(op.side, std::nullopt, res.trades);
 		pending_.push_back(op);
 		if constexpr (EnableAttribution) {
 			pending_attribution_.push_back(PendingAttribution{});
@@ -812,47 +727,44 @@ private:
 		++attribution_op_index_;
 	}
 
-	llmes::matching_core::AddResult execute_pending(std::size_t idx, std::uint64_t& ok) {
+	void execute_pending(std::size_t idx, std::uint64_t& ok) {
 		auto const& op = pending_[idx];
-		llmes::matching_core::AddResult result{};
 		switch (op.type) {
 		case PendingOp::kLimitAdd: {
-			result =
-					timed_book_->add_limit_order(op.oid, op.side, op.price, op.qty, op.oid);
-			if (result.code == llmes::matching_core::ErrorCode::Success) ++ok;
+			auto const res =
+					book_->add_limit_order(op.oid, op.side, op.price, op.qty, op.oid);
+			if (res.code == matching::ErrorCode::Success) ++ok;
 			break;
 		}
 		case PendingOp::kCancel: {
-			auto const code = timed_book_->cancel_order(op.target_id);
-			result.code = code;
-			if (code == llmes::matching_core::ErrorCode::Success) ++ok;
+			auto const code = book_->cancel_order(op.target_handle);
+			if (code == matching::ErrorCode::Success) ++ok;
 			break;
 		}
 		case PendingOp::kModify: {
-			result = timed_book_->modify_order(op.target_id, op.side, op.price,
-																				 op.qty, op.oid);
-			if (result.code == llmes::matching_core::ErrorCode::Success) ++ok;
+			auto const res = book_->modify_order(op.target_handle, op.side, op.price,
+																					 op.qty, op.oid);
+			if (res.code == matching::ErrorCode::Success) ++ok;
 			break;
 		}
 		case PendingOp::kMarket: {
-			result =
-					timed_book_->add_market_order(op.oid, op.side, op.market_qty, op.oid);
-			if (result.code == llmes::matching_core::ErrorCode::Success ||
-					result.code == llmes::matching_core::ErrorCode::MarketRemainderCancelled) {
+			auto const res =
+					book_->add_market_order(op.oid, op.side, op.market_qty, op.oid);
+			if (res.code == matching::ErrorCode::Success ||
+					res.code == matching::ErrorCode::MarketRemainderCancelled) {
 				++ok;
 			}
 			break;
 		}
 		}
-		return result;
 	}
 
-	void track_add_predicted(std::uint64_t id, llmes::matching_core::Side side,
+	void track_add_predicted(std::uint64_t id, matching::Side side,
 													 std::int64_t price, std::uint64_t qty) {
 		track_remove_predicted(id);
 		resting_orders_[id] = RestingMeta{side, price, qty};
 		resting_ids_.push_back(id);
-		if (side == llmes::matching_core::Side::Buy) {
+		if (side == matching::Side::Buy) {
 			++bid_level_counts_[price];
 		} else {
 			++ask_level_counts_[price];
@@ -864,7 +776,7 @@ private:
 		auto it = resting_orders_.find(id);
 		if (it == resting_orders_.end()) return;
 
-		if (it->second.side == llmes::matching_core::Side::Buy) {
+		if (it->second.side == matching::Side::Buy) {
 			auto lc = bid_level_counts_.find(it->second.price);
 			if (lc != bid_level_counts_.end()) {
 				if (lc->second > 0) --lc->second;
@@ -881,17 +793,26 @@ private:
 		update_best_prices();
 	}
 
-	void apply_trade_fills(const std::vector<llmes::matching_core::Trade>& trades) {
+	void apply_trade_fills(const std::vector<matching::Trade>& trades,
+												 std::unordered_map<std::uint64_t, HandleMeta>* handles =
+														 nullptr) {
 		for (const auto& trade : trades) {
 			auto it = resting_orders_.find(trade.maker_order_id);
 			if (it == resting_orders_.end()) continue;
 
 			if (trade.quantity >= it->second.qty) {
+				if (handles != nullptr) handles->erase(trade.maker_order_id);
 				track_remove_predicted(trade.maker_order_id);
 				continue;
 			}
 
 			it->second.qty -= trade.quantity;
+			if (handles != nullptr) {
+				auto hit = handles->find(trade.maker_order_id);
+				if (hit != handles->end()) {
+					hit->second.qty -= std::min(hit->second.qty, trade.quantity);
+				}
+			}
 		}
 	}
 
@@ -901,9 +822,11 @@ private:
 		for (const auto& [id, _] : resting_orders_) resting_ids_.push_back(id);
 	}
 
-	std::unique_ptr<GenerationBook> build_generation_book_from_tracking(
-			std::size_t pool_capacity) {
-		auto book = make_generation_book(pool_capacity);
+	std::unique_ptr<matching::OrderBook> build_book_from_tracking(
+			std::size_t pool_capacity,
+			std::unordered_map<std::uint64_t, HandleMeta>& handles) {
+		auto book = std::make_unique<matching::OrderBook>(pool_capacity);
+		handles.clear();
 		std::vector<std::uint64_t> ids;
 		ids.reserve(resting_orders_.size());
 		for (const auto& [id, _] : resting_orders_) ids.push_back(id);
@@ -913,26 +836,12 @@ private:
 			auto it = resting_orders_.find(id);
 			if (it == resting_orders_.end()) continue;
 			auto const& meta = it->second;
-			(void)book->add_limit_order(id, meta.side, meta.price, meta.qty, id);
-			drain_generation_trades();
-		}
-		return book;
-	}
-
-	std::unique_ptr<TimedBook> build_timed_book_from_tracking(
-			std::size_t pool_capacity) {
-		auto book = make_timed_book(pool_capacity);
-		std::vector<std::uint64_t> ids;
-		ids.reserve(resting_orders_.size());
-		for (const auto& [id, _] : resting_orders_) ids.push_back(id);
-		std::sort(ids.begin(), ids.end());
-
-		for (std::uint64_t id : ids) {
-			auto it = resting_orders_.find(id);
-			if (it == resting_orders_.end()) continue;
-			auto const& meta = it->second;
-			(void)book->add_limit_order(id, meta.side, meta.price, meta.qty, id);
-			drain_timed_trades();
+			const auto res =
+					book->add_limit_order(id, meta.side, meta.price, meta.qty, id);
+			if (res.code == matching::ErrorCode::Success &&
+					res.remaining_quantity > 0) {
+				handles[id] = HandleMeta{res.handle, res.remaining_quantity};
+			}
 		}
 		return book;
 	}
@@ -942,18 +851,18 @@ private:
 		best_ask_ = ask_level_counts_.empty() ? 1000 : ask_level_counts_.begin()->first;
 	}
 
-	[[nodiscard]] bool has_price_level(llmes::matching_core::Side side,
+	[[nodiscard]] bool has_price_level(matching::Side side,
 																		 std::int64_t price) const {
-		if (side == llmes::matching_core::Side::Buy) {
+		if (side == matching::Side::Buy) {
 			return bid_level_counts_.contains(price);
 		}
 		return ask_level_counts_.contains(price);
 	}
 
 	bool do_limit_add() {
-		llmes::matching_core::Side const side =
-				(param_rng_.next() % 2 == 0) ? llmes::matching_core::Side::Buy
-																		 : llmes::matching_core::Side::Sell;
+		matching::Side const side =
+				(param_rng_.next() % 2 == 0) ? matching::Side::Buy
+																		 : matching::Side::Sell;
 		std::int64_t const ref = (best_ask_ > 0) ? best_ask_ : 1000;
 		int offset = 0;
 		std::uint64_t r = param_rng_.next();
@@ -962,7 +871,7 @@ private:
 			r >>= 8;
 		}
 		if (offset == 0) offset = 1;
-		std::int64_t const price = (side == llmes::matching_core::Side::Buy)
+		std::int64_t const price = (side == matching::Side::Buy)
 															 ? std::max<std::int64_t>(1, ref - offset - 1)
 															 : ref + offset;
 		static constexpr std::uint64_t kQtyTable[32] = {
@@ -971,11 +880,11 @@ private:
 		std::uint64_t const qty = kQtyTable[param_rng_.next() % 32];
 		std::uint64_t const oid = id_counter_++;
 		auto const res = book_->add_limit_order(oid, side, price, qty, oid);
-		drain_generation_trades();
-		apply_trade_fills(generation_trades_);
-		if (res.code == llmes::matching_core::ErrorCode::Success) {
+		apply_trade_fills(res.trades, &book_handles_);
+		if (res.code == matching::ErrorCode::Success) {
 			if (res.remaining_quantity > 0) {
 				track_add_predicted(oid, side, price, res.remaining_quantity);
+				book_handles_[oid] = HandleMeta{res.handle, res.remaining_quantity};
 			}
 			return true;
 		}
@@ -990,9 +899,11 @@ private:
 	}
 
 	bool do_cancel(std::uint64_t target_id) {
-		auto const code = book_->cancel_order(target_id);
-		drain_generation_trades();
-		if (code == llmes::matching_core::ErrorCode::Success) {
+		auto handle_it = book_handles_.find(target_id);
+		if (handle_it == book_handles_.end()) return false;
+		auto const code = book_->cancel_order(handle_it->second.handle);
+		if (code == matching::ErrorCode::Success) {
+			book_handles_.erase(handle_it);
 			track_remove_predicted(target_id);
 			if ((param_rng_.next() % 100) < 15) {
 				enqueue_cluster_legacy();
@@ -1014,17 +925,20 @@ private:
 				old_price + ((param_rng_.next() % 2 == 0) ? -delta : delta);
 		std::uint64_t const new_qty = 1 + (param_rng_.next() % 20);
 		std::uint64_t const ts = id_counter_++;
-		llmes::matching_core::Side const side =
-				(param_rng_.next() % 2 == 0) ? llmes::matching_core::Side::Buy
-																		 : llmes::matching_core::Side::Sell;
+		matching::Side const side =
+				(param_rng_.next() % 2 == 0) ? matching::Side::Buy
+																		 : matching::Side::Sell;
+		auto handle_it = book_handles_.find(target);
+		if (handle_it == book_handles_.end()) return do_limit_add();
 		auto const res =
-				book_->modify_order(target, side, new_price, new_qty, ts);
-		drain_generation_trades();
-		if (res.code == llmes::matching_core::ErrorCode::Success) {
+				book_->modify_order(handle_it->second.handle, side, new_price, new_qty, ts);
+		if (res.code == matching::ErrorCode::Success) {
+			book_handles_.erase(handle_it);
 			track_remove_predicted(target);
-			apply_trade_fills(generation_trades_);
+			apply_trade_fills(res.trades, &book_handles_);
 			if (res.remaining_quantity > 0) {
 				track_add_predicted(target, side, new_price, res.remaining_quantity);
+				book_handles_[target] = HandleMeta{res.handle, res.remaining_quantity};
 			}
 			return true;
 		}
@@ -1034,9 +948,9 @@ private:
 	bool do_market() {
 		std::uint64_t const total = resting_orders_.size();
 		if (total == 0) return do_limit_add();
-		llmes::matching_core::Side const side =
-				(param_rng_.next() % 2 == 0) ? llmes::matching_core::Side::Buy
-																		 : llmes::matching_core::Side::Sell;
+		matching::Side const side =
+				(param_rng_.next() % 2 == 0) ? matching::Side::Buy
+																		 : matching::Side::Sell;
 		int const mroll = static_cast<int>(param_rng_.next() % 100);
 		std::uint64_t qty;
 		if (mroll < 85) {
@@ -1049,10 +963,9 @@ private:
 		}
 		std::uint64_t const oid = id_counter_++;
 		auto const res = book_->add_market_order(oid, side, qty, oid);
-		drain_generation_trades();
-		if (res.code == llmes::matching_core::ErrorCode::Success ||
-				res.code == llmes::matching_core::ErrorCode::MarketRemainderCancelled) {
-			apply_trade_fills(generation_trades_);
+		if (res.code == matching::ErrorCode::Success ||
+				res.code == matching::ErrorCode::MarketRemainderCancelled) {
+			apply_trade_fills(res.trades, &book_handles_);
 			return true;
 		}
 		return false;
@@ -1119,12 +1032,20 @@ private:
 				auto const it = resting_orders_.find(id);
 				if (it == resting_orders_.end()) continue;
 				if (std::abs(it->second.price - best) <= 3) {
-					auto const code = book_->cancel_order(id);
-					drain_generation_trades();
-					if (code != llmes::matching_core::ErrorCode::Success) {
+					auto book_handle_it = book_handles_.find(id);
+					if (book_handle_it == book_handles_.end()) {
 						track_remove_predicted(id);
 						continue;
 					}
+					auto const code = book_->cancel_order(book_handle_it->second.handle);
+					if (code != matching::ErrorCode::Success) {
+						book_handles_.erase(book_handle_it);
+						track_remove_predicted(id);
+						continue;
+					}
+					matching::OrderHandle const target_handle =
+							book_handle_it->second.handle;
+					book_handles_.erase(book_handle_it);
 					PendingOp op;
 					PendingAttribution attribution;
 					op.type = PendingOp::kCancel;
@@ -1135,6 +1056,7 @@ private:
 						op.qty = it->second.qty;
 					}
 					op.target_id = id;
+					op.target_handle = target_handle;
 					op.oid = 0;
 					annotate_level_reuse(attribution, op.side, op.price);
 					cluster_ops.push_back(op);

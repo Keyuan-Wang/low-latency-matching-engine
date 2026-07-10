@@ -31,27 +31,25 @@ namespace {
 using Clock = std::chrono::steady_clock;
 
 /**
-	* @brief Optional perf measurement-window control via the perf control FIFO.
+	* @brief Optional `perf record` region control via the perf control FIFO.
 	*
-	* When the process is launched under any perf frontend that supports fifo
-	* control, e.g.
+	* When the process is launched under
 	*   `perf record --control=fifo:<ctl>,<ack> -D -1 -- <bench> ...`
-	*   `perf stat   --control=fifo:<ctl>,<ack> -D -1 -- <bench> ...`
 	* and the FIFO paths are exported as @c LLMES_PERF_CTL_FIFO /
-	* @c LLMES_PERF_ACK_FIFO, this helper toggles counting/sampling so that only
-	* the measured RunOp batch is attributed.  Warmup, Setup(), and Teardown()
-	* run with perf disabled, exactly mirroring the PMC enable/disable window.
+	* @c LLMES_PERF_ACK_FIFO, this helper toggles sampling so that only the
+	* measured RunOp batch is recorded.  Warmup, Setup(), and Teardown() run
+	* with sampling disabled, exactly mirroring the PMC enable/disable window.
 	*
-	* This keeps `perf report` / `perf annotate` / `perf stat` focused on the
-	* engine hot path instead of the heavy benchmark scaffolding (book rebuild,
-	* 500k-event warmup, batch pre-generation).
+	* This keeps `perf report` / `perf annotate` focused on the engine hot path
+	* instead of the heavy benchmark scaffolding (book rebuild, 500k-event
+	* warmup, batch pre-generation).
 	*
 	* When the environment variables are absent the helper is inert and adds no
 	* overhead, so normal benchmark runs are unaffected.
 	*/
-class PerfWindowControl {
+class PerfRecordControl {
 	public:
-	PerfWindowControl() {
+	PerfRecordControl() {
 #if defined(__linux__)
 		const char* ctl = std::getenv("LLMES_PERF_CTL_FIFO");
 		const char* ack = std::getenv("LLMES_PERF_ACK_FIFO");
@@ -69,10 +67,10 @@ class PerfWindowControl {
 #endif
 	}
 
-	~PerfWindowControl() { Close(); }
+	~PerfRecordControl() { Close(); }
 
-	PerfWindowControl(const PerfWindowControl&) = delete;
-	PerfWindowControl& operator=(const PerfWindowControl&) = delete;
+	PerfRecordControl(const PerfRecordControl&) = delete;
+	PerfRecordControl& operator=(const PerfRecordControl&) = delete;
 
 	[[nodiscard]] bool enabled() const noexcept { return enabled_; }
 
@@ -196,10 +194,10 @@ int RunScenario(IBenchScenario& scenario, int argc, char** argv) {
 		return 3;
 	}
 
-	// Inert unless launched under `perf * --control=fifo` with the FIFO paths
-	// exported.  When active, it restricts perf counting/sampling to the
-	// measured RunOp batch only.
-	PerfWindowControl perf_window_ctl{};
+	// Inert unless launched under `perf record --control=fifo` with the FIFO
+	// paths exported.  When active, it restricts perf sampling to the measured
+	// RunOp batch only.
+	PerfRecordControl perf_record_ctl{};
 
 	// --- measurement phase ---
 	// Each iteration: Setup (untimed) → timing window → batch_size × RunOp
@@ -208,7 +206,7 @@ int RunScenario(IBenchScenario& scenario, int argc, char** argv) {
 	for (std::uint64_t i = 0; i < args.iters; ++i) {
 		scenario.Setup(args, iter_counter);
 
-		if (perf_window_ctl.enabled()) perf_window_ctl.Enable();
+		if (perf_record_ctl.enabled()) perf_record_ctl.Enable();
 
 		if (args.metric == MetricMode::Pmc && !perf.ResetEnable()) {
 			return 3;
@@ -224,7 +222,7 @@ int RunScenario(IBenchScenario& scenario, int argc, char** argv) {
 			if (!perf.Disable()) return 3;
 		}
 
-		if (perf_window_ctl.enabled()) perf_window_ctl.Disable();
+		if (perf_record_ctl.enabled()) perf_record_ctl.Disable();
 
 		scenario.Teardown();
 		++iter_counter;

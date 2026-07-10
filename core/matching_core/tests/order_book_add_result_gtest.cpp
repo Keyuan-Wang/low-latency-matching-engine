@@ -1,4 +1,4 @@
-#include "matching_core/order_book.hpp"
+#include "matching/order_book.hpp"
 
 #include <gtest/gtest.h>
 
@@ -14,19 +14,19 @@
 #include <utility>
 #include <vector>
 
-std::ostream& operator<<(std::ostream& os, llmes::matching_core::ErrorCode code) {
+std::ostream& operator<<(std::ostream& os, matching::ErrorCode code) {
     switch (code) {
-    case llmes::matching_core::ErrorCode::Success:
+    case matching::ErrorCode::Success:
         return os << "Success";
-    case llmes::matching_core::ErrorCode::InvalidQuantity:
+    case matching::ErrorCode::InvalidQuantity:
         return os << "InvalidQuantity";
-    case llmes::matching_core::ErrorCode::DuplicateOrderId:
+    case matching::ErrorCode::DuplicateOrderId:
         return os << "DuplicateOrderId";
-    case llmes::matching_core::ErrorCode::UnknownOrderId:
+    case matching::ErrorCode::UnknownOrderId:
         return os << "UnknownOrderId";
-    case llmes::matching_core::ErrorCode::PendingCancelExists:
+    case matching::ErrorCode::PendingCancelExists:
         return os << "PendingCancelExists";
-    case llmes::matching_core::ErrorCode::MarketRemainderCancelled:
+    case matching::ErrorCode::MarketRemainderCancelled:
         return os << "MarketRemainderCancelled";
     }
     return os << "ErrorCode(" << static_cast<int>(code) << ")";
@@ -42,71 +42,70 @@ struct RefOrder {
 
 class ReferenceOrderBook {
 public:
-    llmes::matching_core::AddResult add_limit_order(std::uint64_t order_id,
-                                        llmes::matching_core::Side side,
+    matching::AddResult add_limit_order(std::uint64_t order_id,
+                                        matching::Side side,
                                         std::int64_t price,
                                         std::uint64_t quantity,
                                         std::uint64_t timestamp) {
         (void)timestamp;
-        trades_.clear();
 
-        llmes::matching_core::AddResult out{};
+        matching::AddResult out{};
         out.initial_quantity = quantity;
 
         if (quantity == 0) {
-            out.code = llmes::matching_core::ErrorCode::InvalidQuantity;
+            out.code = matching::ErrorCode::InvalidQuantity;
             return out;
         }
 
         std::uint64_t remaining = quantity;
-        if (side == llmes::matching_core::Side::Buy) {
-            match_limit(order_id, side, price, remaining, asks_, out, trades_);
+        if (side == matching::Side::Buy) {
+            match_limit(order_id, side, price, remaining, asks_, out);
         } else {
-            match_limit(order_id, side, price, remaining, bids_, out, trades_);
+            match_limit(order_id, side, price, remaining, bids_, out);
         }
 
         out.remaining_quantity = remaining;
         if (remaining == 0) {
-            out.code = llmes::matching_core::ErrorCode::Success;
+            out.code = matching::ErrorCode::Success;
             return out;
         }
 
         rest_order(order_id, side, price, remaining);
-        out.code = llmes::matching_core::ErrorCode::Success;
+        out.code = matching::ErrorCode::Success;
+        out.handle = 0;  // Fake valid handle. Tests compare validity only.
         return out;
     }
 
-    llmes::matching_core::AddResult add_market_order(std::uint64_t order_id,
-                                         llmes::matching_core::Side side,
+    matching::AddResult add_market_order(std::uint64_t order_id,
+                                         matching::Side side,
                                          std::uint64_t quantity,
                                          std::uint64_t timestamp) {
         (void)timestamp;
-        trades_.clear();
 
-        llmes::matching_core::AddResult out{};
+        matching::AddResult out{};
         out.initial_quantity = quantity;
 
         if (quantity == 0) {
-            out.code = llmes::matching_core::ErrorCode::InvalidQuantity;
+            out.code = matching::ErrorCode::InvalidQuantity;
             return out;
         }
 
         std::uint64_t remaining = quantity;
-        if (side == llmes::matching_core::Side::Buy) {
-            match_market(order_id, remaining, asks_, out, trades_);
+        if (side == matching::Side::Buy) {
+            match_market(order_id, remaining, asks_, out);
         } else {
-            match_market(order_id, remaining, bids_, out, trades_);
+            match_market(order_id, remaining, bids_, out);
         }
 
         out.remaining_quantity = remaining;
         out.code = (remaining == 0)
-                       ? llmes::matching_core::ErrorCode::Success
-                       : llmes::matching_core::ErrorCode::MarketRemainderCancelled;
+                       ? matching::ErrorCode::Success
+                       : matching::ErrorCode::MarketRemainderCancelled;
         return out;
     }
 
-    llmes::matching_core::AddResult modify_order(std::uint64_t order_id,
-                                     llmes::matching_core::Side side,
+    matching::AddResult modify_order(std::uint64_t order_id,
+                                     matching::Side side,
                                      std::int64_t price,
                                      std::uint64_t quantity,
                                      std::uint64_t timestamp) {
@@ -118,28 +117,23 @@ public:
         return cancel_from_book(order_id, bids_) || cancel_from_book(order_id, asks_);
     }
 
-    [[nodiscard]] const std::vector<llmes::matching_core::Trade>& trades() const noexcept {
-        return trades_;
-    }
-
 private:
     template <typename Book>
     static void match_limit(std::uint64_t order_id,
-                            llmes::matching_core::Side side,
+                            matching::Side side,
                             std::int64_t limit_price,
                             std::uint64_t& remaining,
                             Book& opposite_book,
-                            llmes::matching_core::AddResult& out,
-                            std::vector<llmes::matching_core::Trade>& trades) {
+                            matching::AddResult& out) {
         while (remaining > 0 && !opposite_book.empty()) {
             const std::int64_t best_price = opposite_book.begin()->first;
             const bool crosses =
-                (side == llmes::matching_core::Side::Buy)
+                (side == matching::Side::Buy)
                     ? (limit_price >= best_price)
                     : (limit_price <= best_price);
             if (!crosses) break;
 
-            match_level(order_id, remaining, opposite_book, out, trades);
+            match_level(order_id, remaining, opposite_book, out);
         }
     }
 
@@ -147,10 +141,9 @@ private:
     static void match_market(std::uint64_t order_id,
                              std::uint64_t& remaining,
                              Book& opposite_book,
-                             llmes::matching_core::AddResult& out,
-                             std::vector<llmes::matching_core::Trade>& trades) {
+                             matching::AddResult& out) {
         while (remaining > 0 && !opposite_book.empty()) {
-            match_level(order_id, remaining, opposite_book, out, trades);
+            match_level(order_id, remaining, opposite_book, out);
         }
     }
 
@@ -158,8 +151,7 @@ private:
     static void match_level(std::uint64_t order_id,
                             std::uint64_t& remaining,
                             Book& opposite_book,
-                            llmes::matching_core::AddResult& out,
-                            std::vector<llmes::matching_core::Trade>& trades) {
+                            matching::AddResult& out) {
         auto level_it = opposite_book.begin();
         auto& queue = level_it->second;
 
@@ -167,8 +159,8 @@ private:
             RefOrder& maker = queue.front();
             const std::uint64_t fill = std::min(remaining, maker.quantity);
 
-            trades.push_back(
-                llmes::matching_core::Trade{order_id, maker.id, maker.price, fill});
+            out.trades.push_back(
+                matching::Trade{order_id, maker.id, maker.price, fill});
             maker.quantity -= fill;
             remaining -= fill;
             out.filled_quantity += fill;
@@ -184,10 +176,10 @@ private:
     }
 
     void rest_order(std::uint64_t order_id,
-                    llmes::matching_core::Side side,
+                    matching::Side side,
                     std::int64_t price,
                     std::uint64_t quantity) {
-        if (side == llmes::matching_core::Side::Buy) {
+        if (side == matching::Side::Buy) {
             bids_[price].push_back(RefOrder{order_id, price, quantity});
         } else {
             asks_[price].push_back(RefOrder{order_id, price, quantity});
@@ -215,17 +207,17 @@ private:
 
     std::map<std::int64_t, std::deque<RefOrder>, std::greater<>> bids_{};
     std::map<std::int64_t, std::deque<RefOrder>, std::less<>> asks_{};
-    std::vector<llmes::matching_core::Trade> trades_{};
 };
 
 struct LiveOrder {
-    llmes::matching_core::Side side = llmes::matching_core::Side::Buy;
+    matching::OrderHandle handle = matching::kInvalidHandle;
+    matching::Side side = matching::Side::Buy;
     std::int64_t price = 0;
     std::uint64_t quantity = 0;
 };
 
-void ExpectSameTrade(const llmes::matching_core::Trade& actual,
-                     const llmes::matching_core::Trade& expected,
+void ExpectSameTrade(const matching::Trade& actual,
+                     const matching::Trade& expected,
                      std::size_t index) {
     SCOPED_TRACE("trade index " + std::to_string(index));
     EXPECT_EQ(actual.taker_order_id, expected.taker_order_id);
@@ -234,76 +226,77 @@ void ExpectSameTrade(const llmes::matching_core::Trade& actual,
     EXPECT_EQ(actual.quantity, expected.quantity);
 }
 
-void ExpectSameAddResult(const llmes::matching_core::AddResult& actual,
-                         const std::vector<llmes::matching_core::Trade>& actual_trades,
-                         const llmes::matching_core::AddResult& expected,
-                         const std::vector<llmes::matching_core::Trade>& expected_trades) {
+void ExpectSameAddResult(const matching::AddResult& actual,
+                         const matching::AddResult& expected) {
     EXPECT_EQ(actual.code, expected.code);
     EXPECT_EQ(actual.initial_quantity, expected.initial_quantity);
     EXPECT_EQ(actual.filled_quantity, expected.filled_quantity);
     EXPECT_EQ(actual.remaining_quantity, expected.remaining_quantity);
-    ASSERT_EQ(actual_trades.size(), expected_trades.size());
-    for (std::size_t i = 0; i < actual_trades.size(); ++i) {
-        ExpectSameTrade(actual_trades[i], expected_trades[i], i);
+    ASSERT_EQ(actual.trades.size(), expected.trades.size());
+    for (std::size_t i = 0; i < actual.trades.size(); ++i) {
+        ExpectSameTrade(actual.trades[i], expected.trades[i], i);
     }
+
+    const bool actual_has_handle = actual.handle != matching::kInvalidHandle;
+    const bool expected_has_handle = expected.handle != matching::kInvalidHandle;
+    EXPECT_EQ(actual_has_handle, expected_has_handle);
 }
 
 class ResultHarness {
 public:
     explicit ResultHarness(std::size_t capacity = 200000)
-        : actual_(llmes::matching_core::VectorTradeSink{actual_trades_}, capacity) {}
+        : actual_(capacity) {}
 
     void add_limit(std::uint64_t order_id,
-                   llmes::matching_core::Side side,
+                   matching::Side side,
                    std::int64_t price,
                    std::uint64_t quantity,
                    std::uint64_t timestamp) {
         const auto expected =
             expected_.add_limit_order(order_id, side, price, quantity, timestamp);
-        actual_trades_.clear();
         const auto actual =
             actual_.add_limit_order(order_id, side, price, quantity, timestamp);
-        ExpectSameAddResult(actual, actual_trades_, expected, expected_.trades());
-        apply_result(order_id, side, price, actual, actual_trades_);
+        ExpectSameAddResult(actual, expected);
+        apply_result(order_id, side, price, actual);
     }
 
     void add_market(std::uint64_t order_id,
-                    llmes::matching_core::Side side,
+                    matching::Side side,
                     std::uint64_t quantity,
                     std::uint64_t timestamp) {
         const auto expected =
             expected_.add_market_order(order_id, side, quantity, timestamp);
-        actual_trades_.clear();
         const auto actual =
             actual_.add_market_order(order_id, side, quantity, timestamp);
-        ExpectSameAddResult(actual, actual_trades_, expected, expected_.trades());
-        apply_trades(actual_trades_);
+        ExpectSameAddResult(actual, expected);
+        apply_trades(actual);
     }
 
     void modify(std::uint64_t order_id,
-                llmes::matching_core::Side side,
+                matching::Side side,
                 std::int64_t price,
                 std::uint64_t quantity,
                 std::uint64_t timestamp) {
         auto live_it = live_.find(order_id);
         ASSERT_NE(live_it, live_.end());
 
+        const matching::OrderHandle handle = live_it->second.handle;
         live_.erase(live_it);
 
         const auto expected =
             expected_.modify_order(order_id, side, price, quantity, timestamp);
-        actual_trades_.clear();
         const auto actual =
-            actual_.modify_order(order_id, side, price, quantity, timestamp);
-        ExpectSameAddResult(actual, actual_trades_, expected, expected_.trades());
-        apply_result(order_id, side, price, actual, actual_trades_);
+            actual_.modify_order(handle, side, price, quantity, timestamp);
+        ExpectSameAddResult(actual, expected);
+        apply_result(order_id, side, price, actual);
     }
 
     void cancel(std::uint64_t order_id) {
         auto live_it = live_.find(order_id);
         ASSERT_NE(live_it, live_.end());
 
-        (void)actual_.cancel_order(order_id);
+        const matching::OrderHandle handle = live_it->second.handle;
+        (void)actual_.cancel_order(handle);
         (void)expected_.cancel_order(order_id);
         live_.erase(live_it);
     }
@@ -324,20 +317,20 @@ public:
 
 private:
     void apply_result(std::uint64_t order_id,
-                      llmes::matching_core::Side side,
+                      matching::Side side,
                       std::int64_t price,
-                      const llmes::matching_core::AddResult& result,
-                      const std::vector<llmes::matching_core::Trade>& trades) {
-        apply_trades(trades);
-        if (result.code == llmes::matching_core::ErrorCode::Success &&
+                      const matching::AddResult& result) {
+        apply_trades(result);
+        if (result.code == matching::ErrorCode::Success &&
             result.remaining_quantity > 0) {
+            ASSERT_NE(result.handle, matching::kInvalidHandle);
             live_[order_id] =
-                LiveOrder{side, price, result.remaining_quantity};
+                LiveOrder{result.handle, side, price, result.remaining_quantity};
         }
     }
 
-    void apply_trades(const std::vector<llmes::matching_core::Trade>& trades) {
-        for (const auto& trade : trades) {
+    void apply_trades(const matching::AddResult& result) {
+        for (const auto& trade : result.trades) {
             auto live_it = live_.find(trade.maker_order_id);
             ASSERT_NE(live_it, live_.end())
                 << "maker id missing from harness live map";
@@ -349,14 +342,13 @@ private:
         }
     }
 
-    std::vector<llmes::matching_core::Trade> actual_trades_{};
-    llmes::matching_core::OrderBook<llmes::matching_core::VectorTradeSink> actual_;
+    matching::OrderBook actual_;
     ReferenceOrderBook expected_{};
     std::unordered_map<std::uint64_t, LiveOrder> live_{};
 };
 
-llmes::matching_core::Side RandomSide(std::mt19937_64& rng) {
-    return (rng() & 1ULL) == 0 ? llmes::matching_core::Side::Buy : llmes::matching_core::Side::Sell;
+matching::Side RandomSide(std::mt19937_64& rng) {
+    return (rng() & 1ULL) == 0 ? matching::Side::Buy : matching::Side::Sell;
 }
 
 std::int64_t RandomPrice(std::mt19937_64& rng) {
@@ -369,30 +361,30 @@ std::int64_t RandomPrice(std::mt19937_64& rng) {
 TEST(OrderBookAddResult, LimitAndMarketResultsMatchReference) {
     ResultHarness h;
 
-    h.add_limit(1, llmes::matching_core::Side::Buy, 100, 10, 1);
-    h.add_limit(2, llmes::matching_core::Side::Sell, 101, 5, 2);
-    h.add_limit(3, llmes::matching_core::Side::Buy, 101, 7, 3);
-    h.add_market(4, llmes::matching_core::Side::Sell, 20, 4);
-    h.add_limit(5, llmes::matching_core::Side::Buy, 100, 0, 5);
-    h.add_market(6, llmes::matching_core::Side::Buy, 0, 6);
+    h.add_limit(1, matching::Side::Buy, 100, 10, 1);
+    h.add_limit(2, matching::Side::Sell, 101, 5, 2);
+    h.add_limit(3, matching::Side::Buy, 101, 7, 3);
+    h.add_market(4, matching::Side::Sell, 20, 4);
+    h.add_limit(5, matching::Side::Buy, 100, 0, 5);
+    h.add_market(6, matching::Side::Buy, 0, 6);
 }
 
-TEST(OrderBookAddResult, FifoTradesArePublishedThroughTradeSink) {
+TEST(OrderBookAddResult, FifoTradesAreVisibleInAddResultOnly) {
     ResultHarness h;
 
-    h.add_limit(10, llmes::matching_core::Side::Sell, 100, 3, 10);
-    h.add_limit(11, llmes::matching_core::Side::Sell, 100, 4, 11);
-    h.add_limit(12, llmes::matching_core::Side::Buy, 100, 5, 12);
+    h.add_limit(10, matching::Side::Sell, 100, 3, 10);
+    h.add_limit(11, matching::Side::Sell, 100, 4, 11);
+    h.add_limit(12, matching::Side::Buy, 100, 5, 12);
 }
 
 TEST(OrderBookAddResult, LargeSingleLevelFifoSweepMatchesReferenceAddResult) {
     ResultHarness h(4096);
 
     for (std::uint64_t i = 0; i < 1024; ++i) {
-        h.add_limit(10000 + i, llmes::matching_core::Side::Sell, 100, 1, i);
+        h.add_limit(10000 + i, matching::Side::Sell, 100, 1, i);
     }
 
-    h.add_limit(20000, llmes::matching_core::Side::Buy, 100, 1024, 20000);
+    h.add_limit(20000, matching::Side::Buy, 100, 1024, 20000);
 }
 
 TEST(OrderBookAddResult, MarketSweepAcrossManyPriceLevelsMatchesReferenceAddResult) {
@@ -400,31 +392,31 @@ TEST(OrderBookAddResult, MarketSweepAcrossManyPriceLevelsMatchesReferenceAddResu
 
     for (std::uint64_t i = 0; i < 256; ++i) {
         h.add_limit(30000 + i,
-                    llmes::matching_core::Side::Sell,
+                    matching::Side::Sell,
                     1000 + static_cast<std::int64_t>(i),
                     2,
                     i);
     }
 
-    h.add_market(40000, llmes::matching_core::Side::Buy, 512, 40000);
+    h.add_market(40000, matching::Side::Buy, 512, 40000);
 }
 
 TEST(OrderBookAddResult, ModifyResultMatchesCancelThenAddSemantics) {
     ResultHarness h;
 
-    h.add_limit(20, llmes::matching_core::Side::Sell, 105, 10, 20);
-    h.add_limit(21, llmes::matching_core::Side::Buy, 100, 4, 21);
-    h.modify(20, llmes::matching_core::Side::Sell, 100, 7, 22);
-    h.add_market(23, llmes::matching_core::Side::Buy, 10, 23);
+    h.add_limit(20, matching::Side::Sell, 105, 10, 20);
+    h.add_limit(21, matching::Side::Buy, 100, 4, 21);
+    h.modify(20, matching::Side::Sell, 100, 7, 22);
+    h.add_market(23, matching::Side::Buy, 10, 23);
 }
 
 TEST(OrderBookAddResult, CancelAffectsOnlyLaterAddResults) {
     ResultHarness h;
 
-    h.add_limit(30, llmes::matching_core::Side::Sell, 100, 5, 30);
-    h.add_limit(31, llmes::matching_core::Side::Sell, 101, 5, 31);
+    h.add_limit(30, matching::Side::Sell, 100, 5, 30);
+    h.add_limit(31, matching::Side::Sell, 101, 5, 31);
     h.cancel(30);
-    h.add_market(32, llmes::matching_core::Side::Buy, 8, 32);
+    h.add_market(32, matching::Side::Buy, 8, 32);
 }
 
 TEST(OrderBookAddResult, RandomStatefulReplayMatchesReferenceAddResults) {

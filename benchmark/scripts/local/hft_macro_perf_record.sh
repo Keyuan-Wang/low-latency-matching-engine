@@ -12,7 +12,7 @@
 #   recording would be dominated by that scaffolding (generate_pending_one,
 #   build_book_from_tracking, RNG, tracking maps) and `perf report` would bury
 #   the engine.  Instead we use perf's control FIFO: the runner enables
-#   sampling only around the timed RunOp batch (see PerfWindowControl in
+#   sampling only around the timed RunOp batch (see PerfRecordControl in
 #   benchmark_runner.cpp), mirroring the PMC enable/disable window.
 #
 # The profiling binary is built as Release + `-g` with NO LLMES_PROFILE_*

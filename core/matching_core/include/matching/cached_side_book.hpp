@@ -3,12 +3,12 @@
 #include <cassert>
 #include <map>
 
-#include "matching_core/pricelevel_pool.hpp"
+#include "matching/pricelevel_pool.hpp"
 #include "price_level.hpp"
 #include "ring_buffer.hpp"
 #include "types.hpp"
 
-namespace llmes::matching_core {
+namespace matching {
 
 /**
  * @brief One book side split into a hot ring and a cold ordered map.
@@ -249,4 +249,4 @@ void CachedSideBook<IsAsk>::flush_all_to_cold() noexcept {
     hot_.reset();
 }
 
-}   // namespace llmes::matching_core
+}   // namespace matching

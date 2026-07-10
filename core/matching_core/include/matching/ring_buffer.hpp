@@ -11,7 +11,7 @@
 #include <cstdint>
 #include <utility>
 
-namespace llmes::matching_core {
+namespace matching {
 
 template <std::size_t N>
 struct uint_from_size;
@@ -205,4 +205,4 @@ public:
     }
 };
 
-}   // namespace llmes::matching_core
+}   // namespace matching

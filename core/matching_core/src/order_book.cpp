@@ -1,20 +1,17 @@
 /**
- * @file order_book_impl.hpp
- * @brief Template implementation of @ref llmes::matching_core::OrderBook.
- *
- * @note Included at the end of @ref order_book.hpp; do not include directly.
+ * @file order_book.cpp
+ * @brief Implementation of @ref matching::OrderBook (Phase 1: map + list, FIFO per level).
  */
 
-
+#include <algorithm>
 #include <cassert>
 
+#include "matching/order_book.hpp"
+#include "matching/price_level.hpp"
+#include "matching/order_pool.hpp"
+#include "matching/types.hpp"
 
-#ifndef LLMES_ORDER_BOOK_IMPL_INCLUDED
-#include "order_book.hpp"
-#endif
-
-namespace llmes::matching_core {
-
+namespace matching {
 
 namespace {
 
@@ -37,15 +34,9 @@ inline bool can_cross_limit(std::int64_t limit_price, std::int64_t best_opposite
 /**
  * @copydoc OrderBook::cancel_order
  */
-template <TradeSink Sink>
-ErrorCode OrderBook<Sink>::cancel_order(std::uint64_t order_id) {
-    auto it = order_index_.find(order_id);
-    if (it == order_index_.end()) {
-        return ErrorCode::UnknownOrderId;
-    }
+ErrorCode OrderBook::cancel_order(OrderHandle h) {
+    Order* o = pool_.resolve(h);
 
-    Order* o = it->second;
-    order_index_.erase(it);
     o->parent_level->erase(*o);
     pool_.release(o);
 
@@ -55,31 +46,23 @@ ErrorCode OrderBook<Sink>::cancel_order(std::uint64_t order_id) {
 /**
  * @copydoc OrderBook::modify_order
  */
-template <TradeSink Sink>
-AddResult OrderBook<Sink>::modify_order(std::uint64_t order_id, Side side, std::int64_t price,
-                                        std::uint64_t quantity, std::uint64_t timestamp) {
-    auto it = order_index_.find(order_id);
-    if (it == order_index_.end()) {
-        AddResult out{};
-        out.initial_quantity = quantity;
-        out.code = ErrorCode::UnknownOrderId;
-        return out;
-    }
+AddResult OrderBook::modify_order(OrderHandle h, Side side, std::int64_t price,
+                                  std::uint64_t quantity, std::uint64_t timestamp) {
+    Order* o = pool_.resolve(h);
 
-    Order* o = it->second;
-    order_index_.erase(it);
+    const auto order_id = o->id;
+
     o->parent_level->erase(*o);
     pool_.release(o);
-
+    
     return add_limit_order(order_id, side, price, quantity, timestamp);
 }
 
 /**
  * @copydoc OrderBook::add_limit_order
  */
-template <TradeSink Sink>
-AddResult OrderBook<Sink>::add_limit_order(std::uint64_t order_id, Side side, std::int64_t price,
-                                           std::uint64_t quantity, std::uint64_t timestamp) {
+AddResult OrderBook::add_limit_order(std::uint64_t order_id, Side side, std::int64_t price,
+                                     std::uint64_t quantity, std::uint64_t timestamp) {
     AddResult out{};
     out.initial_quantity = quantity;
 
@@ -88,10 +71,6 @@ AddResult OrderBook<Sink>::add_limit_order(std::uint64_t order_id, Side side, st
         return out;
     }
 
-    if (order_index_.find(order_id) != order_index_.end()) {
-        out.code = ErrorCode::DuplicateOrderId;
-        return out;
-    }
 
     if (side == Side::Buy) {
         out.remaining_quantity = matching_engine_limit<Side::Buy>(out, order_id, price, quantity);
@@ -105,7 +84,11 @@ AddResult OrderBook<Sink>::add_limit_order(std::uint64_t order_id, Side side, st
     }
 
     // add remaining limit order to book
-    Order* node = pool_.acquire();
+    OrderHandle h = pool_.acquire();
+
+    assert(h != kInvalidHandle);
+
+    Order* node = pool_.resolve(h);
     // TODO: WHAT IF POOL IS ALREADY EMPTY?
     assert(node != nullptr);
 
@@ -129,16 +112,15 @@ AddResult OrderBook<Sink>::add_limit_order(std::uint64_t order_id, Side side, st
 
     // output
     out.code = ErrorCode::Success;
-    order_index_[order_id] = node;
+    out.handle = h;
     return out;
 }
 
 /**
  * @copydoc OrderBook::add_market_order
  */
-template <TradeSink Sink>
-AddResult OrderBook<Sink>::add_market_order(std::uint64_t order_id, Side side, std::uint64_t quantity,
-                                            std::uint64_t timestamp) {
+AddResult OrderBook::add_market_order(std::uint64_t order_id, Side side, std::uint64_t quantity,
+                                      std::uint64_t timestamp) {
 
     AddResult out{};
     out.initial_quantity = quantity;
@@ -148,10 +130,6 @@ AddResult OrderBook<Sink>::add_market_order(std::uint64_t order_id, Side side, s
         return out;
     }
 
-    if (order_index_.find(order_id) != order_index_.end()) {
-        out.code = ErrorCode::DuplicateOrderId;
-        return out;
-    }
 
     if (side == Side::Buy) {
         out.remaining_quantity = matching_engine_market<Side::Buy>(out, order_id, quantity);
@@ -168,12 +146,9 @@ AddResult OrderBook<Sink>::add_market_order(std::uint64_t order_id, Side side, s
     return out;
 }
 
-template<TradeSink Sink>
+
 template <Side S>
-std::uint64_t OrderBook<Sink>::matching_engine_limit(AddResult& out,
-                                                     std::uint64_t order_id,
-                                                     std::int64_t price,
-                                                     std::uint64_t quantity) {
+std::uint64_t OrderBook::matching_engine_limit(AddResult& out, std::uint64_t order_id, std::int64_t price, std::uint64_t quantity) {
     // Consume opposite-side liquidity while the limit price permits crossing.
     auto& oppo_book = opposite_book<S>();
     while (quantity > 0 && !oppo_book.empty()) {
@@ -189,7 +164,7 @@ std::uint64_t OrderBook<Sink>::matching_engine_limit(AddResult& out,
 
             const std::uint64_t fill = std::min(quantity, maker.quantity);
 
-            sink_.push_trade(order_id, maker.id, maker.price, fill);
+            out.trades.emplace_back(order_id, maker.id, maker.price, fill);
 
             maker.quantity -= fill;
             quantity -= fill;
@@ -197,12 +172,11 @@ std::uint64_t OrderBook<Sink>::matching_engine_limit(AddResult& out,
 
             if (maker.quantity == 0) {
                 Order* maker_ptr = &maker;
-                order_index_.erase(maker.id);
                 price_level.erase(*maker_ptr);
                 pool_.release(maker_ptr);
             }
         }
-
+        
         if (price_level.empty())
             oppo_book.erase_best();
     }
@@ -210,9 +184,9 @@ std::uint64_t OrderBook<Sink>::matching_engine_limit(AddResult& out,
     return quantity;
 }
 
-template <TradeSink Sink>
+
 template <Side S>
-std::uint64_t OrderBook<Sink>::matching_engine_market(AddResult& out, std::uint64_t order_id, std::uint64_t quantity) {
+std::uint64_t OrderBook::matching_engine_market(AddResult& out, std::uint64_t order_id, std::uint64_t quantity) {
     auto& oppo_book = opposite_book<S>();
     while (quantity > 0 && !oppo_book.empty()) {
         auto& price_level = oppo_book.best_level();
@@ -222,7 +196,7 @@ std::uint64_t OrderBook<Sink>::matching_engine_market(AddResult& out, std::uint6
 
             const std::uint64_t fill = std::min(quantity, maker.quantity);
 
-            sink_.push_trade(order_id, maker.id, maker.price, fill);
+            out.trades.emplace_back(order_id, maker.id, maker.price, fill);
 
             maker.quantity -= fill;
             quantity -= fill;
@@ -230,7 +204,6 @@ std::uint64_t OrderBook<Sink>::matching_engine_market(AddResult& out, std::uint6
 
             if (maker.quantity == 0) {
                 Order* maker_ptr = &maker;
-                order_index_.erase(maker.id);
                 price_level.erase(*maker_ptr);
                 pool_.release(maker_ptr);
             }
@@ -243,4 +216,4 @@ std::uint64_t OrderBook<Sink>::matching_engine_market(AddResult& out, std::uint6
     return quantity;
 }
 
-}  // namespace llmes::matching_core
+}  // namespace matching

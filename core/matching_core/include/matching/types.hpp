@@ -3,9 +3,12 @@
 #include <cstdint>
 #include <vector>
 
-namespace llmes::matching_core {
+namespace matching {
 
 class PriceLevel;  // forward decl — full definition in price_level.hpp
+
+using OrderHandle = std::uint32_t;  // Direct index into the order pool.
+inline constexpr OrderHandle kInvalidHandle = UINT32_MAX;
 
 template <bool IsAsk>
 struct PriceCompare;
@@ -25,7 +28,7 @@ struct PriceCompare<false> {
 };
 
 
-enum class Side : std::uint32_t {
+enum class Side {
     Buy,   ///< Bid side (buy book).
     Sell,  ///< Ask side (sell book).
 };
@@ -39,7 +42,7 @@ struct Trade {
 };
 
 
-enum class ErrorCode : std::uint32_t {
+enum class ErrorCode {
     Success,                   ///< Operation completed as requested.
     InvalidQuantity,           ///< Non-positive quantity (e.g. zero).
     DuplicateOrderId,          ///< Order id already present on the book.
@@ -56,6 +59,10 @@ struct AddResult {
     std::uint64_t initial_quantity{0};   ///< Requested quantity at entry.
     std::uint64_t filled_quantity{0};      ///< Total matched quantity.
     std::uint64_t remaining_quantity{0};   ///< Unfilled quantity after matching / rest.
+
+    OrderHandle handle{kInvalidHandle};
+
+    std::vector<Trade> trades{};           ///< Individual fills, in chronological order.
 };
 
 

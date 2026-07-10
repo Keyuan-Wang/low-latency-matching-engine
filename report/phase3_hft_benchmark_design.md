@@ -116,7 +116,7 @@ $0.01    →  1       (minimum representable price difference)
 $100.00  →  10000
 ```
 
-The tick size is fixed at **$0.01 = 1 tick**. The `std::int64_t` type in `llmes::matching_core::types.hpp`:
+The tick size is fixed at **$0.01 = 1 tick**. The `std::int64_t` type in `matching::types.hpp`:
 
 ```cpp
 struct Order {

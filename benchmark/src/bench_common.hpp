@@ -13,7 +13,7 @@
 
 #pragma once
 
-#include "matching_core/order_book.hpp"
+#include "matching/order_book.hpp"
 
 #include <asm/unistd.h>
 #include <linux/perf_event.h>
@@ -291,9 +291,9 @@ inline double Percentile(std::vector<double> values, double p) {
 	* @param levels   Number of distinct price levels.
 	* @param id_base  Starting order-ID offset.
 	*/
-template <llmes::matching_core::TradeSink Sink>
-inline void PrefillSellBook(llmes::matching_core::OrderBook<Sink>& book, std::uint64_t orders,
-														std::uint64_t levels, std::uint64_t id_base) {
+inline void PrefillSellBook(matching::OrderBook& book, std::uint64_t orders,
+														std::uint64_t levels, std::uint64_t id_base,
+														std::vector<matching::OrderHandle>* handles = nullptr) {
 	const std::uint64_t per_level =
 			std::max<std::uint64_t>(1, orders / std::max<std::uint64_t>(1, levels));
 	std::uint64_t id = id_base;
@@ -301,7 +301,9 @@ inline void PrefillSellBook(llmes::matching_core::OrderBook<Sink>& book, std::ui
 		// Starts at 1000 and increments by one tick per level.
 		const std::int64_t ask_price = 1000 + static_cast<std::int64_t>(lvl);
 		for (std::uint64_t j = 0; j < per_level; ++j) {
-			(void)book.add_limit_order(id, llmes::matching_core::Side::Sell, ask_price, 1, id);
+			const auto res =
+					book.add_limit_order(id, matching::Side::Sell, ask_price, 1, id);
+			if (handles != nullptr) handles->push_back(res.handle);
 			++id;
 		}
 	}
@@ -327,14 +329,14 @@ inline void PrefillSellBook(llmes::matching_core::OrderBook<Sink>& book, std::ui
 	* @param seed      Deterministic RNG seed for ID generation.
 	* @param side      Side to place orders (Sell for asks, Buy for bids).
 	*/
-template <llmes::matching_core::TradeSink Sink>
-inline void PrefillHftBook(llmes::matching_core::OrderBook<Sink>& book,
+inline void PrefillHftBook(matching::OrderBook& book,
 														std::uint64_t orders,
 														std::uint64_t levels,
 														std::int64_t base_price = 1000,
 														std::uint64_t id_base = 100'000'000ULL,
 														std::uint64_t seed = 42,
-														llmes::matching_core::Side side = llmes::matching_core::Side::Sell) {
+														matching::Side side = matching::Side::Sell,
+														std::vector<matching::OrderHandle>* handles = nullptr) {
 	SplitMix64 rng(seed);
 	std::uint64_t id = id_base;
 	std::uint64_t remaining = orders;
@@ -357,7 +359,8 @@ inline void PrefillHftBook(llmes::matching_core::OrderBook<Sink>& book,
 
 			const std::int64_t price = base_price + static_cast<std::int64_t>(tick);
 			for (std::uint64_t j = 0; j < count; ++j) {
-				(void)book.add_limit_order(id, side, price, 1, id);
+				const auto res = book.add_limit_order(id, side, price, 1, id);
+				if (handles != nullptr) handles->push_back(res.handle);
 				++id;
 			}
 			remaining -= count;
@@ -375,7 +378,8 @@ inline void PrefillHftBook(llmes::matching_core::OrderBook<Sink>& book,
 
 			const std::int64_t price = base_price + static_cast<std::int64_t>(tick);
 			for (std::uint64_t j = 0; j < count; ++j) {
-				(void)book.add_limit_order(id, side, price, 1, id);
+				const auto res = book.add_limit_order(id, side, price, 1, id);
+				if (handles != nullptr) handles->push_back(res.handle);
 				++id;
 			}
 			remaining -= count;
@@ -386,7 +390,8 @@ inline void PrefillHftBook(llmes::matching_core::OrderBook<Sink>& book,
 	if (remaining > 0) {
 		const std::int64_t price = base_price;
 		for (std::uint64_t j = 0; j < remaining; ++j) {
-			(void)book.add_limit_order(id, side, price, 1, id);
+			const auto res = book.add_limit_order(id, side, price, 1, id);
+			if (handles != nullptr) handles->push_back(res.handle);
 			++id;
 		}
 	}

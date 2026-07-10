@@ -2,7 +2,7 @@
 
 #include "types.hpp"
 
-namespace llmes::matching_core {
+namespace matching {
 
 class PriceLevel {
 private:

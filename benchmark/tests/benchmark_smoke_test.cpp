@@ -81,9 +81,9 @@ void test_percentile() {
 
 /** @brief Test PrefillSellBook populates the book correctly. */
 void test_prefill_sell_book() {
-	llmes::matching_core::OrderBook book(210);
+	matching::OrderBook book(210);
 	benchmark_runner::PrefillSellBook(book, 100, 10, 1000);
-	const auto r = book.add_market_order(9999, llmes::matching_core::Side::Buy, 200, 9999);
+	const auto r = book.add_market_order(9999, matching::Side::Buy, 200, 9999);
 	check(r.filled_quantity > 0, "prefilled orders exist and can be swept");
 	std::cout << "  PrefillSellBook: OK\n";
 }

@@ -1,25 +1,22 @@
-#pragma once
-
 /**
  * @file order_book.hpp
- * @brief Central limit order book (Phase 1): declarations for @ref llmes::matching_core::OrderBook and related types.
+ * @brief Central limit order book (Phase 1): declarations for @ref matching::OrderBook and related types.
  */
 
-#include <concepts>
+#pragma once
+
 #include <cstdint>
 #include <map>
 #include <utility>
 #include <cstddef>  // std::byte, std::size_t
-#include "absl/container/flat_hash_map.h"
 
 
 #include "types.hpp"
 #include "price_level.hpp"
 #include "order_pool.hpp"
 #include "array_side_book.hpp"
-#include "trade_sink.hpp"
 
-namespace llmes::matching_core {
+namespace matching {
 /**
  * @brief Price-level container for one side of the book.
  *
@@ -63,33 +60,27 @@ using BidBook = SideBook<false>;
  * @details
  * - Bids and asks are stored in separate @ref BidBook / @ref AskBook maps.
  * - Each price maps to a @ref PriceLevel (`std::list`) for FIFO per level.
- * - Resting orders are found by business order id through an internal hash map.
+ * - Resting orders are addressed by an engine handle returned from add.
+ *
+ * @note The matching core assumes the gateway has validated business order ids.
  */
-template <TradeSink Sink = NullTradeSink>
 class OrderBook {
 public:
-    /** @brief Constructs an empty book with a default-initialized trade sink. */
-    explicit OrderBook(std::size_t pool_capacity = 100000)
-        requires std::default_initializable<Sink>
-        : sink_{}, pool_(pool_capacity) {}
-
-    /** @brief Constructs an empty book with the given trade sink. */
-    explicit OrderBook(Sink sink, std::size_t pool_capacity = 100000)
-        : sink_(std::move(sink)), pool_(pool_capacity) {}
+    /** @brief Constructs an empty book. */
+    explicit OrderBook(std::size_t pool_capacity = 100000) : pool_(pool_capacity) {};
 
     /**
      * @brief Submit a limit order: match against the opposite side, rest remainder on book.
      *
-     * @param order_id   Business/reporting order id.
+     * @param order_id   Business/reporting order id; not used for hot-path lookup.
      * @param side       @ref Side::Buy consumes asks; @ref Side::Sell consumes bids.
      * @param price      Limit price; used for crossing check and for resting level.
      * @param quantity   Desired quantity (> 0).
      * @param timestamp  Opaque event time (stored on resting portion).
-     * @return @ref AddResult with fill/rest fields set; trades are emitted via the book's sink.
+     * @return @ref AddResult with @ref AddResult::trades and fill/rest fields set.
      *
      * @retval ErrorCode::Success Resting portion (if any) posted; or fully filled.
      * @retval ErrorCode::InvalidQuantity @p quantity == 0.
-     * @retval ErrorCode::DuplicateOrderId @p order_id is already live.
      */
     AddResult add_limit_order(std::uint64_t order_id, Side side, std::int64_t price,
                               std::uint64_t quantity, std::uint64_t timestamp);
@@ -105,39 +96,36 @@ public:
      *
      * @retval ErrorCode::Success Fully filled.
      * @retval ErrorCode::MarketRemainderCancelled Partially filled; remainder discarded.
-     * @retval ErrorCode::DuplicateOrderId @p order_id is already live.
      */
     AddResult add_market_order(std::uint64_t order_id, Side side, std::uint64_t quantity,
                                std::uint64_t timestamp);
 
     /**
-     * @brief Atomically replace a resting order addressed by order id.
+     * @brief Atomically replace a resting order addressed by handle.
      *
-     * @param order_id  Business order id of the live resting order.
+     * @param h         Engine handle returned by a previous resting add.
      * @param side      Side for the replacement order.
      * @param price     Limit price for the replacement order.
      * @param quantity  Quantity for the replacement order (> 0).
      * @param timestamp Opaque event time for the replacement order.
-     * @return @ref AddResult from the replacement add, or an error result.
+     * @return @ref AddResult from the replacement add, or @ref ErrorCode::InvalidQuantity.
      */
-    AddResult modify_order(std::uint64_t order_id, Side side, std::int64_t price,
+    AddResult modify_order(OrderHandle h, Side side, std::int64_t price,
                            std::uint64_t quantity, std::uint64_t timestamp);
 
     /**
-     * @brief Remove a resting order by order id.
+     * @brief Remove a resting order by engine handle.
      *
-     * @param order_id Business order id of the live resting order.
+     * @param h Engine handle returned by a previous resting add.
      * @return @ref ErrorCode::Success if removed from book.
      */
-    ErrorCode cancel_order(std::uint64_t order_id);
+    ErrorCode cancel_order(OrderHandle h);
 
 private:
     ArraySideBook<false> bids_;   ///< Bid price levels (best bid at @c begin()).
     ArraySideBook<true> asks_;   ///< Ask price levels (best ask at @c begin()).
 
-    Sink sink_;
     OrderPool pool_;
-    absl::flat_hash_map<std::uint64_t, Order*> order_index_;
 
     template <Side S>
     [[gnu::always_inline]] auto& opposite_book() {
@@ -146,19 +134,10 @@ private:
     };
 
     template <Side S>
-    std::uint64_t matching_engine_limit(AddResult& out,
-                                        std::uint64_t order_id,
-                                        std::int64_t price,
-                                        std::uint64_t quantity);
+    std::uint64_t matching_engine_limit(AddResult& out, std::uint64_t order_id, std::int64_t price, std::uint64_t quantity);
 
     template <Side S>
     std::uint64_t matching_engine_market(AddResult& out, std::uint64_t order_id, std::uint64_t quantity);
 };
 
-}  // namespace llmes::matching_core
-
-
-
-#define LLMES_ORDER_BOOK_IMPL_INCLUDED
-#include "order_book_impl.hpp"
-#undef LLMES_ORDER_BOOK_IMPL_INCLUDED
+}  // namespace matching

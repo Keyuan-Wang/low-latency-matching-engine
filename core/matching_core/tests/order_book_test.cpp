@@ -1,8 +1,7 @@
-#include "matching_core/order_book.hpp"
+#include "matching/order_book.hpp"
 
 #include <cstdlib>
 #include <iostream>
-#include <vector>
 
 namespace {
 
@@ -15,84 +14,60 @@ void expect(bool ok, const char* msg) {
 }
 
 int main() {
+    matching::OrderBook book;
+
     // 1. push limit order to an empty book: only insert the orders but no matching
     {
-        std::vector<llmes::matching_core::Trade> trades;
-        llmes::matching_core::OrderBook<llmes::matching_core::VectorTradeSink> book(
-            llmes::matching_core::VectorTradeSink{trades});
-        const auto r = book.add_limit_order(1, llmes::matching_core::Side::Buy, 100, 10, 1);
-        expect(r.code == llmes::matching_core::ErrorCode::Success, "Limite rest success");
+        const auto r = book.add_limit_order(1, matching::Side::Buy, 100, 10, 1);
+        expect(r.code == matching::ErrorCode::Success, "Limite rest success");
         expect(r.filled_quantity == 0, "no fill");
         expect(r.remaining_quantity == 10, "full qty rests");
-        expect(trades.empty(), "no trade");
+        expect(r.trades.empty(), "no trade");
+        expect(r.handle != matching::kInvalidHandle, "resting order returns handle");
     }
 
     // 2. matching + push remaining orders in the book
     {
-        std::vector<llmes::matching_core::Trade> trades;
-        llmes::matching_core::OrderBook<llmes::matching_core::VectorTradeSink> b(
-            llmes::matching_core::VectorTradeSink{trades});
-        (void)b.add_limit_order(10, llmes::matching_core::Side::Sell, 100, 5, 1);
-        const auto r = b.add_limit_order(11, llmes::matching_core::Side::Buy, 100, 12, 2);
-        expect(r.code == llmes::matching_core::ErrorCode::Success, "cross Success");
+        matching::OrderBook b;
+        (void)b.add_limit_order(10, matching::Side::Sell, 100, 5, 1);
+        const auto r = b.add_limit_order(11, matching::Side::Buy, 100, 12, 2);
+        expect(r.code == matching::ErrorCode::Success, "cross Success");
         expect(r.filled_quantity == 5, "filled 5");
         expect(r.remaining_quantity == 7, "rest 7");
-        expect(trades.size() == 1, "one trade");
-        expect(trades[0].maker_order_id == 10, "maker id");
-        expect(trades[0].quantity == 5, "trade qty");
-    }
+        expect(r.trades.size() == 1, "one trade");
+        expect(r.trades[0].maker_order_id == 10, "maker id");
+        expect(r.trades[0].quantity == 5, "trade qty");
+      }
 
     // 3. market orders wipe all orders, reamining orders are canceled
     {
-        llmes::matching_core::OrderBook b;
-        (void)b.add_limit_order(101, llmes::matching_core::Side::Sell, 100, 5, 1);
-        (void)b.add_limit_order(102, llmes::matching_core::Side::Sell, 101, 5, 2);
-        const auto r = b.add_market_order(500, llmes::matching_core::Side::Buy, 15, 3);
+        matching::OrderBook b;
+        (void)b.add_limit_order(101, matching::Side::Sell, 100, 5, 1);
+        (void)b.add_limit_order(102, matching::Side::Sell, 101, 5, 2);
+        const auto r = b.add_market_order(500, matching::Side::Buy, 15, 3);
         expect(r.filled_quantity == 10, "market fill 10");
         expect(r.remaining_quantity == 5, "remainder 5");
-        expect(r.code == llmes::matching_core::ErrorCode::MarketRemainderCancelled, "remainder cancelled");
+        expect(r.code == matching::ErrorCode::MarketRemainderCancelled, "remainder cancelled");
     }
 
-    // 4. order-id based cancel
+    // 4. handle-based cancel
     {
-        llmes::matching_core::OrderBook b;
-        const auto r = b.add_limit_order(42, llmes::matching_core::Side::Buy, 100, 1, 1);
-        expect(r.code == llmes::matching_core::ErrorCode::Success, "insert before cancel");
-        expect(b.cancel_order(42) == llmes::matching_core::ErrorCode::Success, "id cancel");
-        expect(b.cancel_order(42) == llmes::matching_core::ErrorCode::UnknownOrderId, "unknown after cancel");
+        matching::OrderBook b;
+        const auto r = b.add_limit_order(42, matching::Side::Buy, 100, 1, 1);
+        expect(r.code == matching::ErrorCode::Success, "insert before cancel");
+        expect(r.handle != matching::kInvalidHandle, "cancel target handle");
+        expect(b.cancel_order(r.handle) == matching::ErrorCode::Success, "handle cancel");
     }
 
-    // 5. live business order ids are checked inside the matching core
+    // 5. business order ids are not used for matching-core uniqueness checks
     {
-        llmes::matching_core::OrderBook b;
-        const auto first = b.add_limit_order(7, llmes::matching_core::Side::Buy, 100, 10, 1);
-        expect(first.code == llmes::matching_core::ErrorCode::Success, "first insert ok");
+        matching::OrderBook b;
+        const auto first = b.add_limit_order(7, matching::Side::Buy, 100, 10, 1);
+        expect(first.code == matching::ErrorCode::Success, "first insert ok");
 
-        const auto second = b.add_limit_order(7, llmes::matching_core::Side::Buy, 99, 5, 2);
-        expect(second.code == llmes::matching_core::ErrorCode::DuplicateOrderId,
-               "duplicate live business id rejected");
-    }
-
-    // 6. fully-filled maker ids are removed from the internal order index
-    {
-        llmes::matching_core::OrderBook b;
-        (void)b.add_limit_order(100, llmes::matching_core::Side::Sell, 100, 5, 1);
-        const auto r = b.add_limit_order(101, llmes::matching_core::Side::Buy, 100, 5, 2);
-        expect(r.code == llmes::matching_core::ErrorCode::Success, "taker fills maker");
-        expect(r.remaining_quantity == 0, "taker fully filled");
-        expect(b.cancel_order(100) == llmes::matching_core::ErrorCode::UnknownOrderId,
-               "filled maker id removed");
-    }
-
-    // 7. order-id based modify keeps cancel-then-add semantics
-    {
-        llmes::matching_core::OrderBook b;
-        (void)b.add_limit_order(200, llmes::matching_core::Side::Buy, 100, 5, 1);
-        const auto r = b.modify_order(200, llmes::matching_core::Side::Buy, 101, 7, 2);
-        expect(r.code == llmes::matching_core::ErrorCode::Success, "id modify");
-        expect(r.remaining_quantity == 7, "modified order rests");
-        expect(b.cancel_order(200) == llmes::matching_core::ErrorCode::Success,
-               "modified id remains cancellable");
+        const auto second = b.add_limit_order(7, matching::Side::Buy, 99, 5, 2);
+        expect(second.code == matching::ErrorCode::Success, "duplicate business id allowed");
+        expect(second.handle != first.handle, "each resting order has its own handle");
     }
 
     std::cout << "order_book tests passed\n";

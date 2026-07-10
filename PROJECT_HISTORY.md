@@ -19,9 +19,6 @@ The notes below are based on:
 - `report/phase9_per_scenario_benchmark.md`
 - `report/phase10_progress.md`
 - `report/phase11_lto_pgo_results.md`
-- `report/spsc_cloud_benchmark_20260617.md`
-- `report/order_entry_protocol_codec_design.md`
-- `report/order_book/phase14_spsc_trade_output_results.md`
 - `benchmark/results/campaign_20260601_1319/`
 - `benchmark/results/hft_macro_perf_record_cloud_20260601/`
 - `server_results/macro_op_profile_cloud_t1/`
@@ -41,9 +38,6 @@ The notes below are based on:
 - `server_results/hft_macro/pgo_compare/pgo_compare_20260614_113205/`
 - `server_results/hft_macro/perf_record/hft_macro_perf_record_20260614_115103/`
 - `server_results/hft_macro/scenarios_tuned/hft_macro_scenarios_tuned_20260614_120210/`
-- `server_results/spsc_full_20260617/`
-- `server_results/spsc_opt_compare_20260617/`
-- `server_results/matching_core_campaign_20260622_204849/`
 
 ## Phase 1: Correctness-First Baseline
 
@@ -660,7 +654,7 @@ Phase 6a closes the Phase 5 perf-record action item (“replace cancel-index has
 
 ## Current Status
 
-As of Phase 14, the documented project phase track is closed for now:
+As of the Phase 11 endpoint:
 
 - **`phase6a`** tags the gateway/handle milestone; the active architecture and benchmark campaign have advanced through Phase 11
 - matching core: **no** `id_to_order_`; cancel/modify are handle-based; gateway owns id validation and id→handle mapping off the hot path
@@ -674,13 +668,9 @@ As of Phase 14, the documented project phase track is closed for now:
 - cloud measurement runs on Hetzner CCX23; `benchmark/scripts/remote/compare.sh` applies the tested CPU/NUMA/IRQ/workqueue/realtime tuning after boot-time isolation setup
 - `nohz_full` reduced benchmark-CPU softirqs by roughly an order of magnitude but did not improve p99, so Linux-system tuning is considered complete for this VM
 - Phase 10 rejected PriceLevel and order-slot cache reuse as explanations for the common `add_rest_new_level` p99/p999 tail; per-call timing remains diagnostic only
-- Phase 11 selected LTO as the performance Release configuration: 14.860 ns/op, 67.28M ops/s, and 94.83 instructions/op on `matching-core/main` with LTO (10 trials, `orders=100k`, `levels=100`)
+- Phase 11 selected LTO as the performance Release configuration: 15.630 ns/op, 63.99M ops/s, and 94.81 instructions/op across the 50-seed comparison
 - PGO and LTO+PGO did not beat LTO alone; PGO benchmark support was removed
-- the matching-engine and order-book core is frozen
-- Phase 12a completed the standalone SPSC queue study; `SpscRingBufferAtomicV3` is the recommended queue variant at 4.35 ns/msg and 230 Mmsg/s
-- Phase 13 completed the fixed-size binary order-entry protocol boundary prototype
-- Phase 14 integrated SPSC into the trade-output publication benchmark path; async SPSC output reached 21.10 ns/op versus 23.33 ns/op for synchronous vector output
-- no further phase is planned for now; future production gateway, persistence, risk, and kernel-bypass networking work is intentionally out of scope for the current phase track
+- the matching-engine and order-book core is frozen; future work moves to SPSC event transport, thread ownership, networking, and persistence
 - ChunkPool benchmark artifacts are recorded but the design is not the active baseline
 - PMR price-level node pooling was tested after Phase 6a; it reduced cache misses but increased instruction count and regressed macro latency, so it is not the active direction
 - unified Phase 1–6 narrative: `report/phase_evolution_phase1_to_phase6.md`, CSV `server_results/hft_macro_cross_phase_summary_20260603.csv`
@@ -689,8 +679,6 @@ As of Phase 14, the documented project phase track is closed for now:
 - Phase 9 per-scenario and system-tuning report: `report/phase9_per_scenario_benchmark.md`
 - Phase 10 attribution report: `report/phase10_progress.md`
 - Phase 11 compiler-optimization report: `report/phase11_lto_pgo_results.md`
-- SPSC queue benchmark report: `report/spsc_cloud_benchmark_20260617.md`
-- Phase 14 async trade-output report: `report/order_book/phase14_spsc_trade_output_results.md`
 
 ## Jun 2026 Unified `hft_macro` Campaign (Devalidated + Phase 6/7)
 
@@ -706,19 +694,19 @@ Headline `hft_macro` at `orders=100000`, `levels=100`, 10 trials (devalidated un
 
 | Phase tag | avg ns/op | ops/s |
 |---|---:|---:|
-| p1-deval | 2167 | 0.47M |
-| p2a-deval | 2124 | 0.48M |
-| p2b-deval | 47.9 | 20.9M |
-| p2c-deval | 64.3 | 15.6M |
-| p2d-deval | 71.1 | 14.1M |
-| p2e-deval | 39.1 | 25.6M |
-| p4a-deval | 37.0 | 27.0M |
+| p1-deval | 2170 | 0.47M |
+| p2a-deval | 2137 | 0.47M |
+| p2b-deval | 48.3 | 20.7M |
+| p2c-deval | 70.6 | 14.2M |
+| p2d-deval | 71.8 | 13.9M |
+| p2e-deval | 39.8 | 25.2M |
+| p4a-deval | 39.3 | 25.5M |
 | p4fin-deval | 40.2 | 24.9M |
-| phase5-deval | 33.8 | 29.6M |
-| phase6a | 29.2 | 34.2M |
-| Phase 7a (ring + cold map) | 23.1 | 43.3M |
-| Phase 7b (+ PriceLevelPool) | 21.4 | 46.8M |
-| Phase 7c (+ short-function inline) | 19.0 | 52.5M |
+| phase5-deval | 34.4 | 29.1M |
+| phase6a / master snapshot | 29.3 | 34.1M |
+| Phase 7a (ring + cold map) | 23.2 | 43.1M |
+| Phase 7b (+ PriceLevelPool) | 21.2 | 47.3M |
+| Phase 7c (+ short-function inline) | 19.3 | 51.7M |
 
 Phase 1–2a rows are O(N)-cancel bound and not comparable to 2b+ for ranking. Phase 6 uses handle-aware benchmark scope (handles resolved in `Setup()`). Phase 7 adds the hot ring / cold map price-level storage on top of the handle-based core, then a dedicated price-level pool, then header-only forced inlining for the small pool/handle helpers. See the Phase 7 section below for the full progression table.
 
@@ -933,19 +921,19 @@ Phase 7 validates the Phase 6b+ hypothesis: the next useful lever after handle-b
 
 | Phase | avg ns/op | ops/s | Key change |
 |---|---:|---:|---|
-| Phase 1 | 2167 | 0.47M | `std::list`, O(N) cancel |
-| Phase 2a | 2124 | 0.48M | pool-backed intrusive list |
-| Phase 2b | 47.9 | 20.9M | `unordered_map` O(1) cancel index |
-| Phase 2e | 39.1 | 25.6M | `absl::flat_hash_map` (Swiss Table) |
-| Phase 4a | 37.0 | 27.0M | `SideBook` abstraction |
-| Phase 5 | 33.8 | 29.6M | production profiling baseline |
-| Phase 6a | 29.2 | 34.2M | handle-based cancel, no in-core id hash |
-| Phase 7a | 23.1 | 43.3M | hot ring buffer + cold map |
-| Phase 7b | 21.4 | 46.8M | + PriceLevelPool |
-| Phase 7c | 19.0 | 52.5M | + header-only/always_inline short helpers |
-| Phase 8b | 17.2 | 58.3M | unified array side book + fixed occupancy tree |
+| Phase 1 | 2170 | 0.47M | `std::list`, O(N) cancel |
+| Phase 2a | 2137 | 0.47M | pool-backed intrusive list |
+| Phase 2b | 48.3 | 20.7M | `unordered_map` O(1) cancel index |
+| Phase 2e | 39.8 | 25.2M | `absl::flat_hash_map` (Swiss Table) |
+| Phase 4a | 39.3 | 25.5M | `SideBook` abstraction |
+| Phase 5 | 34.4 | 29.1M | production profiling baseline |
+| Phase 6a | 30.3 | 33.0M | handle-based cancel, no in-core id hash |
+| Phase 7a | 23.2 | 43.1M | hot ring buffer + cold map |
+| Phase 7b | 21.2 | 47.3M | + PriceLevelPool |
+| Phase 7c | 19.3 | 51.7M | + header-only/always_inline short helpers |
+| Phase 8b | 17.2 | 58.1M | unified array side book + fixed occupancy tree |
 
-Phase 1 → Phase 8b: roughly `2167 -> 17.2 ns/op`, about a 126x throughput improvement on the headline macro workload. Phase 1–2a rows are O(N)-cancel bound and not comparable to 2b+ for ranking.
+Phase 1 → Phase 8b: roughly `2170 -> 17.2 ns/op`, about a 124x throughput improvement on the headline macro workload. Phase 1–2a rows are O(N)-cancel bound and not comparable to 2b+ for ranking.
 
 The next step was a fresh production profile on Phase 7c before choosing a Phase 8 target. The Phase 7b profile remained useful for broad shape, but its pool acquire/release/resolve costs were partially superseded by Phase 7c. The older Phase 6a profile was superseded because its `std::map get_or_create` bottleneck had been structurally replaced.
 
@@ -1018,13 +1006,13 @@ Phase 8b removed ghost cleanup from `empty()`, `best_price()`, and `best_level()
 
 | Metric | Phase 8b | Phase 7c | Change |
 |---|---:|---:|---:|
-| avg ns/op | 17.2 | 19.0 | -9.8% |
-| cycles/op | 62.70 | 70.61 | -11.2% |
-| instructions/op | 129.67 | 137.19 | -5.5% |
-| branch misses/op | 1.218 | 1.489 | -18.2% |
-| cache misses/op | 0.0205 | 0.0347 | -40.9% |
+| avg ns/op | 17.21 | 19.27 | -10.7% |
+| cycles/op | 62.82 | 70.26 | -10.6% |
+| instructions/op | 130.05 | 137.13 | -5.2% |
+| branch misses/op | 1.229 | 1.496 | -17.8% |
+| cache misses/op | 0.0202 | 0.0333 | -39.3% |
 
-Phase 8b is the active performance baseline. It reaches about 58.3M macro operations/s on the comparable Hetzner CCX23 run.
+Phase 8b is the active performance baseline. It reaches about 58.1M macro operations/s on the comparable Hetzner CCX23 run.
 
 ### Phase 8c: Eager Empty-Level Retirement (Rejected)
 
@@ -1198,7 +1186,7 @@ server_results/hft_macro/pgo_compare/pgo_compare_20260614_113205/
 | Build | Average ns/op | Throughput | Cycles/op | Instructions/op | Branches/op |
 |---|---:|---:|---:|---:|---:|
 | Baseline | 17.589 | 56.86M | 64.62 | 127.67 | 25.06 |
-| **LTO** | **14.860** | **67.28M** | **54.81** | **94.83** | **17.08** |
+| **LTO** | **15.630** | **63.99M** | **57.25** | **94.81** | **17.07** |
 | LTO + PGO | 15.790 | 63.34M | 58.03 | 93.93 | 16.04 |
 | PGO | 17.815 | 56.14M | 65.58 | 122.70 | 21.79 |
 
@@ -1233,404 +1221,3 @@ The matching-engine and order-book core is now considered complete for this proj
 - network input/output;
 - journal and recovery;
 - execution and risk components.
-
-## Phase 12a: SPSC Lock-Free Ring Buffer
-
-### Motivation
-
-After Phase 11, the matching engine and order book were frozen. The next bottleneck is no longer inside the book; it is the boundary around it.
-
-The intended runtime model is:
-
-- one gateway/session thread handles network I/O and protocol parsing;
-- one matching thread owns `OrderBook`;
-- commands flow from gateway to matching through an SPSC queue;
-- execution reports and trades flow back through another SPSC queue.
-
-That requires a queue whose overhead is small relative to the 14.86 ns/op matching-core baseline. A mutex queue is not acceptable on this path.
-
-### Implementation Ladder
-
-The SPSC implementation lives in:
-
-```text
-core/SPSC/spsc_ring_buffer.hpp
-core/SPSC/test.cpp
-```
-
-The source intentionally keeps several versions as an optimization ladder:
-
-| Step | CLI mode | Class | Design |
-|:---:|---|---|---|
-| 0 | `mutex` | `SpscRingBufferMutex` | `std::mutex` baseline |
-| 1 | `atomicv1` | `SpscRingBufferAtomicV1` | lock-free atomics, default `seq_cst`, no padding |
-| 2 | `atomicv2` | `SpscRingBufferAtomicV2` | cache-line padding + relaxed/acquire/release |
-| 3 | `atomicv3` | `SpscRingBufferAtomicV3` | cached opponent head/tail with modulo indices |
-| 4 | `atomicv4` | `SpscRingBufferAtomicV4` | cached local monotonic counters |
-
-All versions use a power-of-two ring capacity and mask-based indexing. The benchmark uses one producer thread and one consumer thread. The checksum validates that all messages are transferred exactly once.
-
-### Cloud Benchmark
-
-Primary artifacts:
-
-```text
-report/spsc_cloud_benchmark_20260617.md
-server_results/spsc_full_20260617/
-server_results/spsc_opt_compare_20260617/
-```
-
-Configuration:
-
-| Field | Value |
-|---|---|
-| Host | Hetzner, AMD EPYC-Milan, 4 vCPU, KVM |
-| Compiler | `g++ -O3 -std=c++20 -pthread` |
-| CPU affinity | `taskset -c 2,3` |
-| Messages | 50,000,000 |
-| Ring capacity | 1024 |
-| PMC | `perf stat -r 5 -d` |
-
-Latency result:
-
-| Step | Mode | ns/msg | Mmsg/s | Checksum |
-|:---:|---|---:|---:|---|
-| 0 | mutex | 98.3 | 10.2 | ok |
-| 1 | atomicv1 | 36.0 | 27.8 | ok |
-| 2 | atomicv2 | 7.51 | 133 | ok |
-| 3 | atomicv3 | **4.35** | **230** | ok |
-| 4 | atomicv4 | 4.70 | 213 | ok |
-
-PMC result:
-
-| Mode | cycles/msg | instructions/msg | CPI | branch miss | Context switches |
-|---|---:|---:|---:|---:|---:|
-| mutex | 604 | 312 | 1.94 | 8.1% | 1,194 |
-| atomicv1 | 234 | 22.6 | 10.4 | 9.3% | 13 |
-| atomicv2 | 56.4 | 20.6 | 2.73 | 6.5% | 5 |
-| **atomicv3** | **30.3** | **19.0** | 1.59 | 0.5% | 3 |
-| atomicv4 | 33.7 | 23.6 | 1.43 | 0.6% | 3 |
-
-### Interpretation
-
-The main optimization steps are clear:
-
-- Removing the mutex improves latency by 2.7x.
-- Cache-line padding plus acquire/release ordering improves latency by another 4.8x.
-- Caching the opponent index improves latency from 7.51 ns/msg to 4.35 ns/msg.
-
-The key mechanism is reduced cross-core traffic. `SpscRingBufferAtomicV3` only acquire-loads the remote index when the ring appears full or empty. On x86-64, the acquire/release atomics lower to ordinary `mov` instructions in the optimized build; there are no `lock`-prefixed operations on the steady path.
-
-`SpscRingBufferAtomicV4` tested monotonic local counters. It has slightly better CPI than V3, but it executes more instructions per message and is about 8% slower. This matches the broader project lesson from the order book: lower CPI or fewer cache misses do not matter if total cycles/op increase.
-
-### Decision
-
-Adopt `SpscRingBufferAtomicV3` as the current queue design for the upcoming system-integration work.
-
-Keep the other versions as references:
-
-- mutex: baseline and negative control;
-- atomicv1: shows the cost of `seq_cst` and false sharing;
-- atomicv2: shows the remaining cost without opponent-index caching;
-- atomicv4: shows that monotonic counters are not automatically faster.
-
-### Next Step
-
-The next project stage is the high-performance order-entry protocol:
-
-- fixed-size binary messages;
-- message header with magic/version, type, payload length, sequence number, and client/session id;
-- NewOrder, CancelOrder, ModifyOrder, Heartbeat, Logout;
-- Accepted, Rejected, Cancelled, Modified, Trade;
-- nonblocking TCP server with `epoll`;
-- per-session input/output buffers and partial read/write handling;
-- sequence checking and basic backpressure;
-- gateway-owned `client_order_id -> OrderHandle` mapping;
-- protocol-level reject reasons and malformed-message tests.
-
-The SPSC queue is the handoff primitive for this design, but it is not yet wired into a gateway or matching-thread runtime.
-
-## Phase 13: Order-Entry Protocol Boundary Prototype
-
-### Motivation
-
-After the matching core and SPSC queue were complete, the next useful layer was
-not another order-book data-structure rewrite. The remaining gap was the external
-boundary: how a client request becomes a decoded command before it ever reaches
-the matching engine.
-
-The goal was intentionally modest:
-
-- build a small binary order-entry protocol;
-- keep the wire format fixed and easy to parse;
-- handle TCP byte-stream framing;
-- add basic session/gateway validation;
-- stop before production networking, kernel bypass, or multi-client gateway
-  engineering.
-
-This keeps `llmes` focused. The matching core remains the low-latency hot path;
-`order_entry` demonstrates the protocol-facing boundary around it.
-
-### Protocol Shape
-
-The order-entry protocol uses a fixed 64-byte frame:
-
-```text
-32B header + 32B payload
-```
-
-The header includes:
-
-- magic/version;
-- message type;
-- payload length;
-- flags;
-- sequence number;
-- session id;
-- reserved space.
-
-Request messages:
-
-- `NewOrder`;
-- `CancelOrder`;
-- `ModifyOrder`;
-- `Heartbeat`;
-- `Logout`.
-
-Response messages:
-
-- `Accepted`;
-- `Rejected`;
-- `Cancelled`;
-- `Modified`;
-- `Trade`.
-
-All payloads are 32 bytes. Small control messages such as `Heartbeat` and
-`Logout` use reserved payload bytes. This wastes a few bytes, but it keeps the
-parser fixed-size and removes variable-length framing from the hot path.
-
-### Implementation
-
-The module lives under:
-
-```text
-core/order_entry/
-```
-
-Main components:
-
-| File | Role |
-|---|---|
-| `protocol.hpp` | wire constants, message types, request/response structs |
-| `codec.hpp` | explicit little-endian encode/decode helpers |
-| `frame_parser.hpp` | per-session ring-buffer parser for TCP byte streams |
-| `session.hpp` | sequence/order-id validation and response generation |
-| `examples/blocking_server.cpp` | single-connection request -> response prototype |
-| `examples/blocking_client.cpp` | demo client |
-
-The codec writes fields by explicit wire offsets rather than using
-`memcpy(struct)`, avoiding C++ padding and ABI assumptions.
-
-The parser uses a fixed-size ring buffer. `append()` handles arbitrary TCP byte
-chunks, including write wrap. `try_parse()` only consumes complete 64-byte
-frames. Because frame size and parser capacity are aligned, parse-time frames
-remain physically contiguous in the ring.
-
-### Session Validation
-
-`OrderEntrySession` adds a small gateway-like validation layer:
-
-- expected sequence number check;
-- duplicate `client_order_id` reject;
-- unknown cancel/modify reject;
-- invalid price/quantity reject;
-- local fake `order_handle` assignment;
-- `Logout` returns a close-session signal.
-
-This is not yet matching-engine integration. The session-owned handle is a
-placeholder for the real matching-core `OrderHandle` that a production gateway
-would receive after insertion.
-
-### Tests
-
-`order_entry_tests` covers:
-
-- request codec round trips;
-- response codec round trips;
-- bad magic/version/type/payload length;
-- parser empty/partial/multi-frame behavior;
-- parser bad-frame non-consumption;
-- parser buffer-full behavior;
-- ring-buffer append wrap;
-- session accepted/rejected/cancelled/modified/logout paths.
-
-Validation command:
-
-```text
-cmake --build build --target order_entry_tests
-./build/core/order_entry/order_entry_tests
-```
-
-Result:
-
-```text
-order_entry tests passed
-```
-
-### Blocking TCP Baseline
-
-A deliberately naive blocking echo benchmark was added:
-
-```text
-benchmark/scripts/local/order_entry_blocking_echo.sh
-```
-
-Local WSL result:
-
-| Messages | Total ns | Avg RTT ns/msg | One-way estimate ns/msg |
-|---:|---:|---:|---:|
-| 100,000 | 4,907,399,662 | 49,074 | 24,537 |
-
-Artifact:
-
-```text
-benchmark/results/order_entry_blocking_echo_20260621_164453/
-```
-
-This number is not a matching-engine latency result. It measures a blocking
-loopback TCP ping-pong through the kernel stack and process scheduling. It is
-useful only as a scale reference for the protocol boundary. The 14.86 ns/op
-matching-core result remains an in-process hot-path result.
-
-### Decision
-
-The order-entry module is complete as a protocol boundary prototype.
-
-The project deliberately does not continue into:
-
-- production nonblocking `epoll`;
-- multi-client gateway/session management;
-- multi-symbol sharding;
-- kernel bypass;
-- direct matching-engine wiring.
-
-Those directions add breadth, but not much more depth for the current project.
-Without bare-metal NIC access, network optimization would mostly measure the
-kernel, VM, and scheduler rather than the code under study.
-
-At this point `llmes` has three completed layers:
-
-- nanosecond-scale in-process matching core;
-- low-latency SPSC transport primitive;
-- compact binary order-entry protocol boundary.
-
-## Phase 14: Async SPSC Trade-Output Publication
-
-### Motivation
-
-After the order-entry boundary prototype, the project returned once more to the
-matching-core boundary. The remaining practical question was not another price
-level or order-pool optimization. It was where trades should go after matching.
-
-The old matching result shape kept trade output close to the calling thread. The
-new design tested two explicit publication paths:
-
-- synchronous vector output;
-- asynchronous SPSC trade-event output.
-
-The goal was to answer a concrete production-style question:
-
-```text
-Should trade/result materialization stay on the matching thread, or should it
-be published through an SPSC queue to a consumer thread?
-```
-
-### Benchmark Design
-
-The comparison used the HFT macro workload with full result publication
-semantics.
-
-Measured paths:
-
-| Scenario | Meaning |
-|---|---|
-| `hft_macro_overall_vector` | matching thread writes trades to a vector, drains it, and attaches trades to the result buffer |
-| `hft_macro_spsc_async` | matching thread publishes trade events into an SPSC queue; a consumer thread pops events and writes them into the result buffer |
-
-The old `hft_macro` row in the campaign remains historical context only. It is
-the legacy embedded-`std::vector<Trade>` `AddResult` path, not a pure
-`NullTradeSink` book-only baseline.
-
-Primary report and artifacts:
-
-```text
-report/order_book/phase14_spsc_trade_output_results.md
-server_results/matching_core_campaign_20260622_204849/
-```
-
-Cloud configuration:
-
-- Hetzner CCX23 VM;
-- LTO enabled;
-- 10 trials;
-- `orders=100000`, `levels=100`, `batch_size=100000`;
-- tuned Linux setup using `nohz_full`, CPU isolation, `chrt -f 95`, and
-  `numactl --physcpubind=2 --membind=0`.
-
-### Result
-
-| Output path | avg ns/op | cycles/op | instructions/op | branches/op | cache misses/op | ops/s |
-|---|---:|---:|---:|---:|---:|---:|
-| Synchronous vector | 23.33 | 86.56 | 204.36 | 26.77 | 0.040 | 42.87M |
-| Async SPSC | 21.10 | 77.44 | 171.95 | 21.48 | 0.034 | 47.40M |
-
-Async SPSC improved over synchronous vector output by:
-
-- 9.55% lower average latency;
-- 10.54% fewer cycles/op;
-- 15.86% fewer instructions/op;
-- 19.78% fewer branches/op;
-- 14.95% fewer cache misses/op;
-- 10.57% higher throughput.
-
-### Interpretation
-
-The result supports the expected design: trade publication is not free, and it
-should not be forced to stay entirely on the matching thread when a cheap SPSC
-handoff is available.
-
-The SPSC path does not eliminate output cost. It reduces matching-thread
-materialization work by turning trade output into compact queue events and
-letting the consumer thread attach them to the output buffer.
-
-The important comparison is only:
-
-```text
-synchronous vector output vs async SPSC output
-```
-
-This phase does not claim a new pure book-only latency number.
-
-### Final Project Decision
-
-Phase 14 is the current final phase of `llmes`.
-
-The project now has four completed layers:
-
-- optimized in-process matching core;
-- standalone SPSC transport primitive;
-- fixed-size binary order-entry protocol boundary;
-- async SPSC trade-output publication benchmark path.
-
-Further work may exist as separate product directions, but it is no longer part
-of the current phase track:
-
-- production `epoll` gateway;
-- real gateway-to-matching runtime wiring;
-- persistence and recovery;
-- risk controls;
-- multi-symbol sharding;
-- kernel-bypass networking.
-
-Those are worthwhile systems, but they would start a new project scope. The
-current `llmes` phase sequence stops here.

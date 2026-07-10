@@ -50,7 +50,7 @@ struct ScenarioSample {
 	std::uint64_t replay_iter_idx = 0;
 	std::uint64_t op_index = 0;
 	std::uint64_t scenario_call_index = 0;
-	llmes::matching_core::Side side = llmes::matching_core::Side::Buy;
+	matching::Side side = matching::Side::Buy;
 	std::int64_t price = 0;
 	std::uint64_t qty = 0;
 	benchmark_runner::hft::OccupancySetPath occupancy_set_path =
@@ -59,6 +59,8 @@ struct ScenarioSample {
 	std::uint8_t price_mod8 = 0;
 	std::uint64_t level_reuse_distance_ops =
 			benchmark_runner::hft::kNoPreviousLevelTouch;
+	std::uint64_t order_slot_reuse_distance_ops =
+			benchmark_runner::hft::kNoPreviousSlotTouch;
 	std::uint64_t raw_cycles = 0;
 	std::uint64_t cycles = 0;
 	std::uint64_t raw_elapsed_ns = 0;
@@ -196,8 +198,8 @@ void ParseArgs(int argc, char** argv, ScenarioArgs& args) {
 	return {ParseFocusOne(focus)};
 }
 
-[[nodiscard]] const char* SideName(llmes::matching_core::Side side) noexcept {
-	return side == llmes::matching_core::Side::Buy ? "buy" : "sell";
+[[nodiscard]] const char* SideName(matching::Side side) noexcept {
+	return side == matching::Side::Buy ? "buy" : "sell";
 }
 
 void RunUntimedWarmup(const benchmark_runner::Args& args,
@@ -261,6 +263,7 @@ void RunMeasuredPass(const benchmark_runner::Args& args,
 					0,
 					0,
 					benchmark_runner::hft::kNoPreviousLevelTouch,
+					benchmark_runner::hft::kNoPreviousSlotTouch,
 					raw,
 					adjusted,
 					raw_elapsed,
@@ -281,6 +284,8 @@ void RunMeasuredPass(const benchmark_runner::Args& args,
 				attribution.occupancy_l1_popcount_before;
 		sample.price_mod8 = attribution.price_mod8;
 		sample.level_reuse_distance_ops = attribution.level_reuse_distance_ops;
+		sample.order_slot_reuse_distance_ops =
+				attribution.order_slot_reuse_distance_ops;
 	}
 
 	if (record_composition) stats.ok += ok;
@@ -366,6 +371,7 @@ void WriteCsvSamples(const ScenarioArgs& args,
 			"batch_size,warmup_iters,iters,seed,measurement_iter,replay_iter_idx,"
 			"op_index,scenario_call_index,side,price,qty,occupancy_set_path,"
 			"occupancy_l1_popcount_before,price_mod8,level_reuse_distance_ops,"
+			"order_slot_reuse_distance_ops,"
 			"raw_cycles,cycles,"
 			"timing_overhead_cycles,raw_elapsed_ns,elapsed_ns,elapsed_overhead_ns");
 
@@ -452,6 +458,13 @@ void WriteCsvSamples(const ScenarioArgs& args,
 				f << -1;
 			} else {
 				f << sample.level_reuse_distance_ops;
+			}
+			f << ",";
+			if (sample.order_slot_reuse_distance_ops ==
+					benchmark_runner::hft::kNoPreviousSlotTouch) {
+				f << -1;
+			} else {
+				f << sample.order_slot_reuse_distance_ops;
 			}
 			f << ","
 				<< sample.raw_cycles

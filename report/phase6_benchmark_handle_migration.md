@@ -22,7 +22,7 @@ The migration takes option 1. The timed window performs pure `OrderBook` operati
 ```cpp
 case PendingOp::kCancel: {
     auto const code = book_->cancel_order(op.target_handle);
-    if (code == llmes::matching_core::ErrorCode::Success) {
+    if (code == matching::ErrorCode::Success) {
         ++ok;
         outcome.bucket = OpBucket::kCancelHit;
     } else {

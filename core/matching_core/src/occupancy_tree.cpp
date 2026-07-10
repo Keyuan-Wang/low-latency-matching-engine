@@ -1,9 +1,9 @@
-#include "matching_core/occupancy_tree.hpp"
+#include "matching/occupancy_tree.hpp"
 
 #include <bit>
 
 
-namespace llmes::matching_core {
+namespace matching {
 
 // Layout: levels_[0..63] = L1 (64 words, one bit per price index)
 //         levels_[64]    = L2 (1 word, one bit per L1 word)
@@ -136,4 +136,4 @@ std::size_t OccupancyTree::find_prev_set(std::size_t bit_pos) const noexcept {
 }
 
 
-}   // namespace llmes::matching_core
+}   // namespace matching
