@@ -5,6 +5,7 @@
 #include "spsc_ring_buffer.hpp"
 
 #include <arpa/inet.h>
+#include <cerrno>
 #include <fcntl.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
@@ -267,5 +268,207 @@ int main () {
 
     std::array<epoll_event, kMaxEvents> events{};
 
-    
+    auto close_conn = [&](int fd) {
+        auto it = connections.find(fd);
+        if(it != connections.end()) {
+            auto& tok = it->second.token;
+            slots[tok.slot].fd = -1;
+
+            // session close
+            EngineCommand cmd{};
+            cmd.type = EngineCommandType::SessionClosed;
+            cmd.session = tok;
+            cmd_queue.push(cmd);
+
+            connections.erase(it);
+        }
+        epoll_remove(epoll_fd, fd);
+        ::close(fd);
+    };
+
+    // keep listening
+    while(true) {
+        const int n = ::epoll_wait(epoll_fd, events.data(), kMaxEvents, -1);
+        if (n < 0) {
+            if (errno == EINTR) continue;
+            perror("epoll_wait");
+            break;
+        }
+
+        for (int i = 0; i < n; ++i) {
+            const int fd = events[i].data.fd;
+
+            // ---------- 5a. eventfd: response from matching engine ----------
+
+            if (fd == event_fd) {
+                std::uint64_t val;
+                ::read(event_fd, &val, sizeof(val));    // consume eventfd
+
+                EngineResponse rsp;
+                while (rsp_queue.pop(rsp)) {
+                    auto& slot = slots[rsp.session.slot];
+                    if (slot.generation != rsp.session.generation || slot.fd < 0)
+                        continue;   // session
+
+                    Frame frame{};
+                    encode_response(rsp, frame);
+
+                    const ssize_t sent = ::send(slot.fd, frame.data(), frame.size(), MSG_NOSIGNAL);
+
+                    if (sent != static_cast<ssize_t>(frame.size())) {
+                        std::cerr << "fd=" << slot.fd << " send failed\n";
+                        close_conn(slot.fd);
+                    }
+                }
+                continue;
+            }
+
+            // ---------- 5b. New connection ----------
+
+            if (fd == listen_fd) {
+                while(true) {
+                    const int client_fd = ::accept(listen_fd, nullptr, nullptr);
+                    if (client_fd < 0) {
+                        if (errno == EAGAIN || errno == EWOULDBLOCK)    break;
+                        perror("accept");
+                        break;
+                    }
+
+                    set_nonblocking(client_fd);
+                    set_tcp_nodelay(client_fd);
+                    epoll_add(epoll_fd, client_fd, EPOLLIN);
+
+                    // allocate SessionToken
+                    const std::uint32_t s = next_slot++ % kMaxSlots;
+                    slots[s].generation++;
+                    slots[s].fd = client_fd;
+                    SessionToken tok{s, slots[s].generation};
+
+                    connections.emplace(
+                        std::piecewise_construct,
+                        std::forward_as_tuple(client_fd),
+                        std::forward_as_tuple(client_fd, tok));
+
+                    std::cout << "accepted fd=" << client_fd << " slot=" << s << '\n';
+                }
+            }
+
+            // ---------- 5c. Client data → parse → push command ----------
+
+            if (!(events[i].events & EPOLLIN))  continue;
+
+            auto it = connections.find(fd);
+            if (it == connections.end()) continue;
+            auto& conn = it->second;
+
+            std::array<std::byte, 1024> read_buf{};
+            const ssize_t nbytes = ::recv(fd, read_buf.data(), read_buf.size(), 0);
+
+            if (nbytes == 0) {
+                std::cout << "fd=" << fd << " closed\n";
+                close_conn(fd); continue;
+            }
+            if (nbytes < 0) {
+                if (errno == EAGAIN || errno == EWOULDBLOCK) continue;
+                perror("recv"); close_conn(fd); continue;
+            }
+
+            if (!conn.parser.append({read_buf.data(),
+                                     static_cast<std::size_t>(nbytes)})) {
+                std::cerr << "fd=" << fd << " buffer full\n";
+                close_conn(fd); continue;
+            }
+
+            bool should_close = false;
+
+            while (true) {
+                DecodedMessage msg;
+                const auto status = conn.parser.try_parse(msg);
+
+                if (status == Parser::Status::NeedMoreData)     break;
+                if (status == Parser::Status::ProtocolError) {
+                    should_close = true;
+                    break;
+                }
+
+                // fast rejection pathes
+                if (msg.header.sequence_number != conn.expected_sequence) {
+                    Frame frame{};
+                    MessageHeader rh = msg.header;
+                    rh.session_id = conn.token.slot;
+                    Rejected rej{};
+                    rej.reason = RejectReason::BadSequence;
+                    encode_rejected(rh, rej, frame);
+                    ::send(fd, frame.data(), frame.size(), MSG_NOSIGNAL);
+                    continue;
+                }
+
+                ++conn.expected_sequence;
+
+                if (msg.type == MessageType::Logout) {
+                    Frame frame{};
+                    MessageHeader rh = msg.header;
+                    Accepted acc{};
+                    encode_accepted(rh, acc, frame);
+                    ::send(fd, frame.data(), frame.size(), MSG_NOSIGNAL);
+                    should_close = true;
+                    break;
+                }
+
+                if (msg.type == MessageType::Heartbeat) {
+                    Frame frame{};
+                    MessageHeader rh = msg.header;
+                    Accepted acc{};
+                    encode_accepted(rh, acc, frame);
+                    ::send(fd, frame.data(), frame.size(), MSG_NOSIGNAL);
+                    continue;
+                }
+
+
+                // Real order msg: convert to enginecommand, push to matching engine
+                EngineCommand cmd{};
+                cmd.session = conn.token;
+                cmd.request_sequence = msg.header.sequence_number;
+
+                switch (msg.type) {
+                    case MessageType::NewOrder:
+                        cmd.type = EngineCommandType::NewLimit;
+                        cmd.client_order_id = msg.new_order.client_order_id;
+                        cmd.side = msg.new_order.side;
+                        cmd.price = msg.new_order.price;
+                        cmd.quantity = msg.new_order.quantity;
+                        break;
+                    case MessageType::CancelOrder:
+                        cmd.type = EngineCommandType::Cancel;
+                        cmd.client_order_id = msg.cancel_order.client_order_id;
+                        break;
+                    case MessageType::ModifyOrder:
+                        cmd.type = EngineCommandType::Modify;
+                        cmd.client_order_id = msg.modify_order.client_order_id;
+                        cmd.price = msg.modify_order.new_price;
+                        cmd.quantity = msg.modify_order.new_quantity;
+                        break;
+                    default:
+                        break;
+                }
+
+                if (!cmd_queue.push(cmd)) {
+                    std::cerr << "command queue full!\n";
+                }
+                
+                if (should_close) close_conn(fd);
+            }
+        }
+    }
+
+    EngineCommand shutdown{};
+    shutdown.type = EngineCommandType::Shutdown;
+    cmd_queue.push(shutdown);
+    matching.join();
+
+    for (auto& [fd, _] : connections) ::close(fd);
+    ::close(epoll_fd);
+    ::close(event_fd);
+    ::close(listen_fd);
+    return 0;
 }
