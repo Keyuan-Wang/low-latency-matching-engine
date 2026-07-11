@@ -1,0 +1,3 @@
+# Bench/harness scripts are reproducibility tooling, not the product surface.
+# Keep them in-tree, but exclude from GitHub Linguist language stats.
+benchmark/scripts/** linguist-documentation
